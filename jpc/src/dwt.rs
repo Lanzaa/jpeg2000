@@ -799,8 +799,8 @@ mod tests {
         let processor = DwtProcessor::new(FilterType::Reversible53);
         let exp_transformed = [-26.0, 1.0, -22.0, 5.0, -30.0, 1.0, -32.0, 0.0, -19.0];
         let samples = vec![101, 103, 104, 105, 96, 97, 96, 102, 109];
-        let level_shift = (2.0 as f64).powf(7.0); // Ssiz = 7
-        let signal: Vec<f64> = samples.iter().map(|v| (*v as f64) - 128.0).collect();
+        let level_shift = (2.0_f64).powf(7.0); // Ssiz = 7
+        let signal: Vec<f64> = samples.iter().map(|v| (*v as f64) - level_shift).collect();
 
         let transformed = processor.subband_decompose_1d(&signal);
         println!("transformed: {:?}", transformed);
@@ -1082,14 +1082,49 @@ mod tests {
     #[test]
     fn test_spec_example_data() {
         // Sample data similar to Table J.3 from the spec (13x17)
+        let sample_data: Vec<Vec<i32>> = vec![
+            vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            vec![1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            vec![2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            vec![3, 3, 3, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12],
+            vec![4, 4, 4, 5, 5, 6, 7, 8, 8, 9, 10, 11, 12],
+            vec![5, 5, 5, 5, 6, 7, 7, 8, 9, 10, 11, 12, 13],
+            vec![6, 6, 6, 6, 7, 7, 8, 9, 10, 10, 11, 12, 13],
+            vec![7, 7, 7, 7, 8, 8, 9, 9, 10, 11, 12, 13, 13],
+            vec![8, 8, 8, 8, 8, 9, 10, 10, 11, 12, 12, 13, 14],
+            vec![9, 9, 9, 9, 9, 10, 10, 11, 12, 12, 13, 14, 15],
+            vec![10, 10, 10, 10, 10, 11, 11, 12, 12, 13, 14, 14, 15],
+            vec![11, 11, 11, 11, 11, 12, 12, 13, 13, 14, 14, 15, 16],
+            vec![12, 12, 12, 12, 12, 13, 13, 13, 14, 15, 15, 16, 16],
+            vec![13, 13, 13, 13, 13, 13, 14, 14, 15, 15, 16, 17, 17],
+            vec![14, 14, 14, 14, 14, 14, 15, 15, 16, 16, 17, 17, 18],
+            vec![15, 15, 15, 15, 15, 15, 16, 16, 17, 17, 18, 18, 19],
+            vec![16, 16, 16, 16, 16, 16, 17, 17, 17, 18, 18, 19, 20],
+        ];
+
         let width = 13;
         let height = 17;
-        let data: Vec<f64> = (0..(width * height)).map(|x| (x % 256) as f64).collect();
+        let mut data = Vec::with_capacity(width * height);
+        for row in &sample_data {
+            for &val in row {
+                data.push(val as f64);
+            }
+        }
         let original = Array2D::from_data(data, width, height);
+        println!("original {:?}", original);
 
         // Test 5-3 round-trip
         let processor_53 = DwtProcessor::new(FilterType::Reversible53);
-        let result_53 = processor_53.round_trip(&original, 1);
+        let sub_bands = processor_53.fdwt(&original, 2);
+        // TODO test against example data
+        for sb in sub_bands.iter() {
+            println!("sb ll {:?}", sb.ll);
+            println!("sb hl {:?}", sb.hl);
+            println!("sb lh {:?}", sb.lh);
+            println!("sb hh {:?}", sb.hh);
+        }
+        assert!(false);
+        let result_53 = processor_53.round_trip(&original, 2);
 
         for row in 0..height {
             for col in 0..width {
