@@ -185,6 +185,21 @@ pub struct SubBands {
     pub hh: Array2D<f64>,
 }
 
+impl SubBands {
+    fn ll(&self) -> &Array2D<f64> {
+        &self.ll
+    }
+    fn hl(&self) -> &Array2D<f64> {
+        &self.hl
+    }
+    fn lh(&self) -> &Array2D<f64> {
+        &self.lh
+    }
+    fn hh(&self) -> &Array2D<f64> {
+        &self.hh
+    }
+}
+
 /// The main DWT processor implementing Annex F procedures
 pub struct DwtProcessor {
     filter_type: FilterType,
@@ -1080,7 +1095,7 @@ mod tests {
     }
 
     #[test]
-    fn test_spec_example_data() {
+    fn test_spec_example_data_53() {
         // Sample data similar to Table J.3 from the spec (13x17)
         let sample_data: Vec<Vec<i32>> = vec![
             vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
@@ -1111,19 +1126,91 @@ mod tests {
             }
         }
         let original = Array2D::from_data(data, width, height);
-        println!("original {:?}", original);
 
         // Test 5-3 round-trip
         let processor_53 = DwtProcessor::new(FilterType::Reversible53);
         let sub_bands = processor_53.fdwt(&original, 2);
-        // TODO test against example data
-        for sb in sub_bands.iter() {
-            println!("sb ll {:?}", sb.ll);
-            println!("sb hl {:?}", sb.hl);
-            println!("sb lh {:?}", sb.lh);
-            println!("sb hh {:?}", sb.hh);
+
+        // Check count and sizes of sub_bands
+        assert_eq!(sub_bands.len(), 2, "expected 2 sub_bands");
+        let sb1 = &sub_bands[0];
+        assert_eq!(sb1.hh.width, 6);
+        assert_eq!(sb1.hh.height, 8);
+        assert_eq!(sb1.lh.width, 7);
+        assert_eq!(sb1.lh.height, 8);
+        assert_eq!(sb1.hl.width, 6);
+        assert_eq!(sb1.hl.height, 9);
+        let sb2 = &sub_bands[1];
+        assert_eq!(sb2.hh.width, 3);
+        assert_eq!(sb2.hh.height, 4);
+        assert_eq!(sb2.lh.width, 4);
+        assert_eq!(sb2.lh.height, 4);
+        assert_eq!(sb2.hl.width, 3);
+        assert_eq!(sb2.hl.height, 5);
+        assert_eq!(sb2.ll.width, 4);
+        assert_eq!(sb2.ll.height, 5);
+
+        type Sbfn = fn(&SubBands) -> &Array2D<f64>;
+        let exp2: Vec<(Sbfn, Vec<i32>)> = vec![
+            (
+                SubBands::ll,
+                vec![
+                    0, 4, 8, 12, 4, 5, 8, 12, 8, 8, 11, 15, 12, 12, 14, 18, 16, 16, 18, 20,
+                ],
+            ),
+            (
+                SubBands::hl,
+                vec![0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+            ),
+            (
+                SubBands::lh,
+                vec![0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+            ),
+            (SubBands::hh, vec![-1, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0]),
+        ];
+
+        fn conv_i32(data: &Array2D<f64>) -> Vec<i32> {
+            data.data.iter().map(|&f| f as i32).collect()
         }
-        assert!(false);
+
+        // Grab data from data above
+        for (af, exp) in exp2.iter() {
+            assert_eq!(exp, &conv_i32(af(sb2)));
+        }
+
+        let exp1: Vec<(Sbfn, Vec<i32>)> = vec![
+            (
+                SubBands::hl,
+                vec![
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0,
+                    0, 0, 1, 1, 0, 0, 1, 1, 0, -1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0,
+                ],
+            ),
+            (
+                SubBands::lh,
+                vec![
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0,
+                    1, 1, 0, 0, 0, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+                    0, 1, 1, 0,
+                ],
+            ),
+            (
+                SubBands::hh,
+                vec![
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+                    0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0,
+                ],
+            ),
+            // Skip ll
+        ];
+
+        // Grab data from data above
+        for (af, exp) in exp1.iter() {
+            assert_eq!(exp, &conv_i32(af(sb1)));
+        }
+
+        // Test round trip
         let result_53 = processor_53.round_trip(&original, 2);
 
         for row in 0..height {
@@ -1140,9 +1227,44 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_spec_example_data_97() {
+        // Sample data similar to Table J.3 from the spec (13x17)
+        let sample_data: Vec<Vec<i32>> = vec![
+            vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            vec![1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            vec![2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            vec![3, 3, 3, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12],
+            vec![4, 4, 4, 5, 5, 6, 7, 8, 8, 9, 10, 11, 12],
+            vec![5, 5, 5, 5, 6, 7, 7, 8, 9, 10, 11, 12, 13],
+            vec![6, 6, 6, 6, 7, 7, 8, 9, 10, 10, 11, 12, 13],
+            vec![7, 7, 7, 7, 8, 8, 9, 9, 10, 11, 12, 13, 13],
+            vec![8, 8, 8, 8, 8, 9, 10, 10, 11, 12, 12, 13, 14],
+            vec![9, 9, 9, 9, 9, 10, 10, 11, 12, 12, 13, 14, 15],
+            vec![10, 10, 10, 10, 10, 11, 11, 12, 12, 13, 14, 14, 15],
+            vec![11, 11, 11, 11, 11, 12, 12, 13, 13, 14, 14, 15, 16],
+            vec![12, 12, 12, 12, 12, 13, 13, 13, 14, 15, 15, 16, 16],
+            vec![13, 13, 13, 13, 13, 13, 14, 14, 15, 15, 16, 17, 17],
+            vec![14, 14, 14, 14, 14, 14, 15, 15, 16, 16, 17, 17, 18],
+            vec![15, 15, 15, 15, 15, 15, 16, 16, 17, 17, 18, 18, 19],
+            vec![16, 16, 16, 16, 16, 16, 17, 17, 17, 18, 18, 19, 20],
+        ];
+
+        let width = 13;
+        let height = 17;
+        let mut data = Vec::with_capacity(width * height);
+        for row in &sample_data {
+            for &val in row {
+                data.push(val as f64);
+            }
+        }
+        let original = Array2D::from_data(data, width, height);
 
         // Test 9-7 round-trip
         let processor_97 = DwtProcessor::new(FilterType::Irreversible97);
+        let sub_bands = processor_97.fdwt(&original, 2);
         let result_97 = processor_97.round_trip(&original, 1);
 
         for row in 0..height {
@@ -1159,6 +1281,27 @@ mod tests {
                 );
             }
         }
+
+        // Check count and sizes of sub_bands
+        assert_eq!(sub_bands.len(), 2, "expected 2 sub_bands");
+        let sb1 = &sub_bands[0];
+        assert_eq!(sb1.hh.width, 6);
+        assert_eq!(sb1.hh.height, 8);
+        assert_eq!(sb1.lh.width, 7);
+        assert_eq!(sb1.lh.height, 8);
+        assert_eq!(sb1.hl.width, 6);
+        assert_eq!(sb1.hl.height, 9);
+        let sb2 = &sub_bands[1];
+        assert_eq!(sb2.hh.width, 3);
+        assert_eq!(sb2.hh.height, 4);
+        assert_eq!(sb2.lh.width, 4);
+        assert_eq!(sb2.lh.height, 4);
+        assert_eq!(sb2.hl.width, 3);
+        assert_eq!(sb2.hl.height, 5);
+        assert_eq!(sb2.ll.width, 4);
+        assert_eq!(sb2.ll.height, 5);
+
+        // TODO consider checking sub_band contents
     }
 
     #[test]
