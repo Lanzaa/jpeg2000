@@ -2844,3 +2844,228 @@ pub fn decode_jpc<R: io::Read + io::Seek>(
 
     Ok(continuous_codestream)
 }
+
+trait PacketHeader {}
+
+enum Packet {
+    ZeroLength(),
+    Packet(i32),
+}
+
+struct PacketB {
+    // TODO
+}
+
+trait MeR: io::Read + io::Seek {}
+impl<T: io::Read + io::Seek> MeR for T {}
+
+struct BitReader<'a> {
+    reader: &'a mut dyn MeR,
+    last_byte: [u8; 1],
+    offset: u8,
+}
+
+impl fmt::Debug for BitReader<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BitReader")
+            .field("last_byte", &format_args!("{:x?}", &self.last_byte))
+            .field("offset", &self.offset)
+            .finish()
+    }
+}
+
+impl<'a> BitReader<'a> {
+    fn new<'b: 'a>(reader: &'b mut dyn MeR) -> BitReader<'a> {
+        let mut buf = [0; 1];
+        reader.read_exact(&mut buf).unwrap();
+        Self {
+            reader,
+            last_byte: buf,
+            offset: 0,
+        }
+    }
+    fn next_bit(&mut self) -> bool {
+        if self.offset == 8 {
+            self.reader.read_exact(&mut self.last_byte).unwrap(); // TODO handle error
+            self.offset = 0;
+        }
+        assert!(self.offset < 8);
+        let o = 7 - self.offset;
+        self.offset += 1;
+        (self.last_byte[0] >> o) & 0x01 == 1
+    }
+
+    fn take(&mut self, arg: u8) -> u8 {
+        let mut out = 0;
+        for _ in 0..arg {
+            out *= 2;
+            out += self.next_bit() as u8;
+        }
+        out
+    }
+}
+
+pub use tag_tree::*;
+
+type InclusionTagTree = TagTreeDecoder;
+type ZeroBitsTagTree = TagTreeDecoder;
+type CodingPassTagTree = TagTreeDecoder;
+type LengthTagTree = TagTreeDecoder;
+
+// PacketContext records the tag trees used for context when decoding packets.
+struct PacketContext {
+    pub inclusion: InclusionTagTree,
+    pub zero_bits: ZeroBitsTagTree,
+    pub pass_counts: CodingPassTagTree,
+    pub lengths: LengthTagTree,
+}
+
+type ME = Box<dyn error::Error>;
+type PacketResultType = Option<Packet>;
+
+fn decode_packet<R: io::Read + io::Seek>(
+    ctx: &mut PacketContext,
+    reader: &mut R,
+) -> Result<PacketResultType, ME> {
+    // Packets are byte aligned, so we can parse at the byte boundary
+
+    let mut bit_reader = BitReader::new(reader);
+    let zl_mark = bit_reader.next_bit();
+    if !zl_mark {
+        // Zero length packet
+        //        todo!(
+        //            "What information is returned with a zero length packet? {:x?}",
+        //            b
+        //        );
+        return Ok(Some(Packet::ZeroLength()));
+    }
+
+    let cb_bit = bit_reader.next_bit();
+    println!("Checking cb inclusion {}", cb_bit);
+    if cb_bit {
+        // code block included?
+    }
+
+    println!("POIX 91 Bit reader state {:?}", bit_reader);
+    let bb = bit_reader.next_bit() as u8;
+    println!("Grabbed {} for zero plane work", bb);
+
+    let mut zb = ctx.zero_bits.push_bit(bb);
+    while zb.is_none() {
+        zb = ctx.zero_bits.push_bit(bit_reader.next_bit() as u8);
+    }
+    let zb_count = zb.expect("Unable to decode zero bit plane");
+    println!("Found zb_count {}", zb_count);
+    // todo read coding pass count
+
+    let coding_pass_count = parse_coding_pass(&mut bit_reader);
+    println!("Coding pass {}", coding_pass_count);
+    let mut lblock = 3;
+    while bit_reader.next_bit() {
+        lblock += 1; // Lblock increases for each 1
+    }
+    let count_read = lblock + coding_pass_count.ilog2();
+    println!("count read {}", count_read);
+
+    let mut buf = vec![0; count_read as usize];
+    reader.read_exact(&mut buf)?;
+
+    //ctx.inclusion.push_bit(cb_bit);
+    // todo make sure this code block is included
+    //if ctx.inclusion.included() {
+    //    // zero bit-plane
+    //} else {
+    //    // loopy ?
+    //}
+
+    Ok(None)
+}
+
+fn parse_coding_pass(br: &mut BitReader) -> u8 {
+    if !br.next_bit() {
+        // 0b0
+        return 1;
+    }
+    if !br.next_bit() {
+        // 0b10
+        return 2;
+    }
+    // 0b11 ?
+    let r = br.take(2);
+    if r != 0b11 {
+        // 0b 11 xx
+        return 3 + r;
+    }
+    // 0b 1111 ?
+    let r = br.take(5);
+    if r != 0b11111 {
+        return 6 + r;
+    }
+    // 0b 1111 11111 ?
+    let r = br.take(7);
+    37 + r
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+
+    #[test]
+    fn test_packet_decode_consume_01() {
+        let ba = b"\xC7\xD4\x0C\x01\x8f\x0D\xC8\x75\x5D\x00\x00\x00";
+
+        let mut ctx = PacketContext {
+            inclusion: TagTreeDecoder::new(1, 1),
+            zero_bits: TagTreeDecoder::new(1, 1),
+            pass_counts: TagTreeDecoder::new(1, 1),
+            lengths: TagTreeDecoder::new(1, 1),
+        };
+        let mut reader = Cursor::new(ba);
+
+        let r = decode_packet(&mut ctx, &mut reader);
+        assert!(r.is_ok());
+        assert_eq!(reader.position(), 9, "expected to consume 9 bytes");
+    }
+
+    #[test]
+    fn test_packet_decode_consume_02() {
+        let ba = b"\xC0\x7C\x21\x80\x0F\xB1\x76";
+
+        let mut ctx = PacketContext {
+            inclusion: TagTreeDecoder::new(1, 1),
+            zero_bits: TagTreeDecoder::new(1, 1),
+            pass_counts: TagTreeDecoder::new(1, 1),
+            lengths: TagTreeDecoder::new(1, 1),
+        };
+        let mut reader = Cursor::new(ba);
+
+        let r = decode_packet(&mut ctx, &mut reader);
+        assert!(r.is_ok());
+        assert_eq!(reader.position(), 4, "expected to consume 4 bytes");
+    }
+
+    #[test]
+    fn test_decode_zl_packet() {
+        let ba = b"\x00";
+        let mut reader = Cursor::new(ba);
+
+        let mut ctx = PacketContext {
+            inclusion: TagTreeDecoder::new(1, 1),
+            zero_bits: TagTreeDecoder::new(1, 1),
+            pass_counts: TagTreeDecoder::new(1, 1),
+            lengths: TagTreeDecoder::new(1, 1),
+        };
+        let r = decode_packet(&mut ctx, &mut reader);
+        assert!(r.is_ok());
+        let packet = r.unwrap().expect("Zero length test fail");
+        match packet {
+            Packet::ZeroLength() => {
+                // ok
+            }
+            _ => panic!("Unable to decode zero length packet"),
+        }
+        assert_eq!(reader.position(), 1, "expected to consume 1 bytes");
+    }
+}
