@@ -2886,6 +2886,7 @@ impl<'a> BitReader<'a> {
             offset: 0,
         }
     }
+
     fn next_bit(&mut self) -> bool {
         if self.offset == 8 {
             self.reader.read_exact(&mut self.last_byte).unwrap(); // TODO handle error
@@ -3066,5 +3067,24 @@ mod tests {
             _ => panic!("Unable to decode zero length packet"),
         }
         assert_eq!(reader.position(), 1, "expected to consume 1 bytes");
+    }
+
+    /// from B.10 packet header
+    #[test]
+    fn test_parse_pass_count() {
+        let vals: Vec<(u8, &[u8])> = vec![
+            (1, b"\x00"),
+            (2, b"\x80"),
+            (4, b"\xD0"),
+            (6, b"\xF0\x00"),
+            (37, b"\xFF\x80"),
+            (37 + 4, b"\xFF\x84"),
+            (37 + 112, b"\xFF\xF0"),
+        ];
+        for (exp, bs) in vals {
+            let mut cursor = Cursor::new(bs);
+            let mut br = BitReader::new(&mut cursor);
+            assert_eq!(exp, parse_coding_pass(&mut br));
+        }
     }
 }

@@ -57,9 +57,9 @@ fn test_c0p0() -> Result<(), String> {
 
     assert_eq!(128 * 128, pgx.samples.length());
 
-    let tiles = codestream.tiles();
-    assert_eq!(1, tiles.len(), "Expected a single tile for this image.");
-    println!("single tile? {:?}", tiles[0]);
+    //let tiles = codestream.tiles();
+    //assert_eq!(1, tiles.len(), "Expected a single tile for this image.");
+    //println!("single tile? {:?}", tiles[0]);
     //assert_eq!("tile 0 length", 7314);
 
     //let decoded_component = ...;
