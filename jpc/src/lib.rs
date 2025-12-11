@@ -2850,9 +2850,11 @@ trait PacketHeader {}
 enum Packet {
     ZeroLength(),
     Packet(i32),
+    PacketWIP(PacketWIP),
 }
 
-struct PacketB {
+struct PacketWIP {
+    compressed: Vec<u8>,
     // TODO
 }
 
@@ -2940,6 +2942,9 @@ fn decode_packet<R: io::Read + io::Seek>(
         return Ok(Some(Packet::ZeroLength()));
     }
 
+    // Walk code-blocks that are included
+    // If a code-block has not been encoded in ctx, grab bits needed.
+    // If a code-block has been encoded, just check 1 bit for inclusion/exclusion status
     let cb_bit = bit_reader.next_bit();
     println!("Checking cb inclusion {}", cb_bit);
     if cb_bit {
@@ -2960,25 +2965,19 @@ fn decode_packet<R: io::Read + io::Seek>(
 
     let coding_pass_count = parse_coding_pass(&mut bit_reader);
     println!("Coding pass {}", coding_pass_count);
-    let mut lblock = 3;
+    let mut lblock = 3u8;
     while bit_reader.next_bit() {
         lblock += 1; // Lblock increases for each 1
     }
-    let count_read = lblock + coding_pass_count.ilog2();
+    let count_read = lblock + coding_pass_count.ilog2() as u8;
     println!("count read {}", count_read);
+    let coded_bytes = bit_reader.take(count_read);
+    println!("Reading {} bytes from reader", coded_bytes);
 
-    let mut buf = vec![0; count_read as usize];
+    let mut buf = vec![0; coded_bytes as usize];
     reader.read_exact(&mut buf)?;
 
-    //ctx.inclusion.push_bit(cb_bit);
-    // todo make sure this code block is included
-    //if ctx.inclusion.included() {
-    //    // zero bit-plane
-    //} else {
-    //    // loopy ?
-    //}
-
-    Ok(None)
+    Ok(Some(Packet::PacketWIP(PacketWIP { compressed: buf })))
 }
 
 fn parse_coding_pass(br: &mut BitReader) -> u8 {
@@ -3043,7 +3042,7 @@ mod tests {
 
         let r = decode_packet(&mut ctx, &mut reader);
         assert!(r.is_ok());
-        assert_eq!(reader.position(), 4, "expected to consume 4 bytes");
+        assert_eq!(reader.position(), 7, "expected to consume 7 bytes");
     }
 
     #[test]
