@@ -4,6 +4,13 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::{fs::File, path::Path};
 
+pub fn init_logger() {
+    let _ = env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Info)
+        .try_init();
+}
+
 pub struct PgxImage {
     pub bit_depth: i64, // i16 would probably be enough
     pub width: i64,

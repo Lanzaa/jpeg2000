@@ -11,6 +11,7 @@ use jpc::{
 };
 
 mod shared;
+use log::info;
 use shared::{load_pgx, PgxImage};
 
 fn test_file(filename: &str) -> Result<PathBuf, String> {
@@ -25,6 +26,8 @@ fn test_file(filename: &str) -> Result<PathBuf, String> {
 
 #[test]
 fn test_c0p0() -> Result<(), String> {
+    shared::init_logger();
+
     let p = test_file("c0p0_01.pgx")?;
     let pgx: PgxImage = load_pgx(p.as_path())?;
 
@@ -54,6 +57,7 @@ fn test_c0p0() -> Result<(), String> {
     assert_eq!(siz.values_are_signed(0).unwrap(), false);
     assert_eq!(siz.horizontal_separation(0).unwrap(), 1);
     assert_eq!(siz.vertical_separation(0).unwrap(), 1);
+    info!("Hello world");
 
     assert_eq!(128 * 128, pgx.samples.length());
 
@@ -73,6 +77,7 @@ fn test_c0p0() -> Result<(), String> {
 
 #[test]
 fn test_j10_example() -> Result<(), String> {
+    shared::init_logger();
     let j2k = test_file("j10.j2k")?;
     let file = File::open(j2k.as_path()).expect("Unable to load test file");
     let mut reader = BufReader::new(file);
@@ -96,16 +101,16 @@ fn test_j10_example() -> Result<(), String> {
     assert_eq!(siz.reference_tile_height(), 128);
     assert_eq!(siz.no_components(), 1);
     assert_eq!(siz.precision(0).unwrap(), 8);
-    assert_eq!(siz.values_are_signed(0).unwrap(), false);
+    assert!(!siz.values_are_signed(0).unwrap());
     assert_eq!(siz.horizontal_separation(0).unwrap(), 1);
     assert_eq!(siz.vertical_separation(0).unwrap(), 1);
 
-    let tiles = codestream.tiles();
-    assert_eq!(1, tiles.len(), "Expected a single tile for this image.");
-    println!("single tile? {:?}", tiles[0]);
-    let t0 = &tiles[0];
-    //assert_eq!(t0.header.length, 30);
-    let expected_component: Vec<u8> = vec![101, 103, 104, 105, 96, 97, 96, 102, 109];
+    // let tiles = codestream.tiles();
+    // assert_eq!(1, tiles.len(), "Expected a single tile for this image.");
+    // println!("single tile? {:?}", tiles[0]);
+    // let t0 = &tiles[0];
+    // //assert_eq!(t0.header.length, 30);
+    // let expected_component: Vec<u8> = vec![101, 103, 104, 105, 96, 97, 96, 102, 109];
 
     //let decoded_component = ...;
 

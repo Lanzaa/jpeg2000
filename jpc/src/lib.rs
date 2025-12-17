@@ -2849,7 +2849,7 @@ trait PacketHeader {}
 
 enum Packet {
     ZeroLength(),
-    Packet(i32),
+    PacketS(i32),
     PacketWIP(PacketWIP),
 }
 
@@ -2953,12 +2953,12 @@ fn decode_packet<R: io::Read + io::Seek>(
     }
 
     println!("POIX 91 Bit reader state {:?}", bit_reader);
-    let bb = bit_reader.next_bit() as u8;
+    let bb = bit_reader.next_bit();
     println!("Grabbed {} for zero plane work", bb);
 
     let mut zb = ctx.zero_bits.push_bit(bb);
     while zb.is_none() {
-        zb = ctx.zero_bits.push_bit(bit_reader.next_bit() as u8);
+        zb = ctx.zero_bits.push_bit(bit_reader.next_bit());
     }
     let zb_count = zb.expect("Unable to decode zero bit plane");
     println!("Found zb_count {}", zb_count);
