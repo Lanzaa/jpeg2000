@@ -13,6 +13,12 @@ mod dwt;
 mod tag_tree;
 
 #[derive(Debug)]
+pub enum JP2DecoderError {
+    CodestreamError,
+    Fail { s: String },
+}
+
+#[derive(Debug)]
 enum CodestreamError {
     MarkerError {
         marker: MarkerSymbol,
@@ -432,6 +438,12 @@ pub struct StartOfTileSegment {
     // and zero. A zero value indicates that the number of tile-parts of this
     // tile is not specified in this tile-part.
     no_tile_parts: [u8; 1],
+}
+
+impl StartOfTileSegment {
+    fn tile_length(&self) -> u32 {
+        u32::from_be_bytes(self.tile_length)
+    }
 }
 
 // A.12
@@ -2094,6 +2106,26 @@ impl ContiguousCodestream {
 
         Ok(segment)
     }
+
+    fn consume_tile_part_and_data<R: io::Read + io::Seek>(
+        &mut self,
+        reader: &mut R,
+    ) -> Result<(), Box<dyn error::Error>> {
+        info!("SOT start at byte offset {}", reader.stream_position()? - 2);
+        let x = self.decode_sot(reader)?;
+        info!("SOT length: {}", x.tile_length());
+        let to_consume = x.tile_length() - x.length as u32;
+
+        let mut buf = Vec::with_capacity(to_consume as usize);
+        reader.take(to_consume as u64).read_to_end(&mut buf)?;
+
+        //self.tiles.push(Tile {
+        //    header: tile_header,
+        //    parts: vec![],
+        //});
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -2606,129 +2638,164 @@ impl ContiguousCodestream {
             .header
             .image_and_tile_size_marker_segment
             .no_components();
-
-        // The tile-part headers are found at the beginning of each tile-part
-        let tile_header = self.decode_first_tile_header(reader, no_components)?;
         let mut marker_type: MarkerSymbol = [0; 2];
 
-        // Required as the last marker segment of every tile-part header
-        reader.read_exact(&mut marker_type)?;
-        if marker_type != MARKER_SYMBOL_SOD {
-            return Err(CodestreamError::MarkerUnexpected {
-                marker: MARKER_SYMBOL_SOD,
-                offset: reader.stream_position()?,
-            }
-            .into());
-        }
-
-        let coding_styles = self.header.coding_style_marker_segment().coding_styles();
-
-        let start_of_data = reader.stream_position()?;
-        info!("SOD start at byte offset {}", start_of_data - 2);
-
+        //  Err(e) => match e.kind() {
+        //      io::ErrorKind::UnexpectedEof => break,
+        //      _ => return Err(e.into()),
+        //  },
         loop {
             match reader.read_exact(&mut marker_type) {
-                Ok(_) => match marker_type {
-                    // in bit-stream markers
-                    MARKER_SYMBOL_SOP => {
-                        info!("SOP start at byte offset {}", reader.stream_position()? - 2);
-                        if coding_styles.contains(&CodingStyleDefault::NoSOP) {
-                            return Err(CodestreamError::MarkerUnexpected {
-                                marker: MARKER_SYMBOL_SOP,
-                                offset: reader.stream_position()? - 2,
-                            }
-                            .into());
-                        } else {
-                            // ITU-T H.800 or ISO/IEC 15444-1 2024, Section A.8.1
-                            let mut buf = [0u8; 2];
-                            reader.read_exact(&mut buf)?;
-                            let lsop = u16::from_be_bytes(buf);
-                            // TODO: if using strict parsing, check length == 4
-                            reader.read_exact(&mut buf)?;
-                            let nsop = u16::from_be_bytes(buf);
-                            // TODO: if using strict parsing, check nsop increment matches packet number,
-                            // even if SOP wasn't present
-                            info!("SOP length {lsop}, sequence number {nsop}");
-                        }
-                    }
-                    MARKER_SYMBOL_EPH => {
-                        // If packet headers are not in-bit stream (i.e., PPM or PPT marker segments are used), this
-                        // marker shall not be used in the bit stream
-                        if !self.header.packed_packet_headers.is_empty()
-                            || tile_header.packed_packet_headers.is_some()
-                        {
-                            return Err(CodestreamError::MarkerUnexpected {
-                                marker: MARKER_SYMBOL_EPH,
-                                offset: reader.stream_position()? - 2,
-                            }
-                            .into());
-                        }
-
-                        if coding_styles.contains(&CodingStyleDefault::NoEPH) {
-                            return Err(CodestreamError::MarkerUnexpected {
-                                marker: MARKER_SYMBOL_EPH,
-                                offset: reader.stream_position()? - 2,
-                            }
-                            .into());
-                        } else {
-                            // ITU-T H.800 or ISO/IEC 15444-1 2024, Section A.8.2
-                            // Empty marker, not even the length.
-                        }
-                    }
-                    // delimiting markers
-                    MARKER_SYMBOL_EOC => {
-                        info!("EOC end at byte offset {}", reader.stream_position()?);
-                        break;
-                    }
-                    MARKER_SYMBOL_SOT => {
-                        // A.4.4
-                        todo!();
-                    }
-                    _ => {
-                        // TODO: See J.10.3 Packet headers
-                        //
-                        // decode packet header B.10.8
-                        //   1 bit for zero or non-zero length packet
-                        //   for each sub-band (LL or HL, LH and HH)
-                        //     for all code-blocks in this sub-band confined to the relevant precinct, in raster order
-                        //       code-block inclusion bits (if not previously included then tag tree, else one bit)
-                        //       if code-block included
-                        //         if first instance of code-block
-                        //           zero bit-planes information
-                        //           number of coding passes included
-                        //           increase of code-block length indicator (Lblock)
-                        //           for each codeword segment
-                        //           length of codeword segment
-
-                        // decode packet data J.10.4
-                        //   Arithmetic-coded compressed data
-
-                        // Decode codestream packet header
-
-                        // Bits are packed into bytes from the MSB to the LSB.
-                        // Once a complete byte is assembled, it is appended to
-                        // the packet header.
-
-                        // If the value of the byte is 0xFF, the next byte
-                        // includes an extra zero bit stuffed into the MSB
-
-                        // Once all bits of the packet header have been
-                        // assembled, the last byte is packed to the byte
-                        // boundary and emitted
-
-                        // The last byte in the packet header shall not be an
-                        // 0xFF value (thus the single zero bit stuffed after a
-                        // byte with 0xFF must be included even if the 0xFF
-                        // would otherwise have been the last byte).
-                    }
-                },
-
+                Ok(_) => (),
                 Err(e) => match e.kind() {
                     io::ErrorKind::UnexpectedEof => break,
                     _ => return Err(e.into()),
                 },
+            };
+            match marker_type {
+                MARKER_SYMBOL_SOT => {
+                    // start of tile-part
+                    let r = self.consume_tile_part_and_data(reader);
+                    info!("umm: {:?}", r);
+                    r?;
+                    // todo!("need to consume tile-part header and bitstream");
+                }
+                MARKER_SYMBOL_EOC => {
+                    // end of codestream
+                    info!("EOC end at byte offset {}", reader.stream_position()?);
+                    break;
+                }
+                _ => {
+                    return Err(CodestreamError::MarkerUnexpected {
+                        marker: MARKER_SYMBOL_SOD,
+                        offset: reader.stream_position()?,
+                    }
+                    .into());
+                }
             }
         }
+
+        //// The tile-part headers are found at the beginning of each tile-part
+        //let tile_header = self.decode_first_tile_header(reader, no_components)?;
+
+        //// Required as the last marker segment of every tile-part header
+        //reader.read_exact(&mut marker_type)?;
+        //if marker_type != MARKER_SYMBOL_SOD {
+        //    return Err(CodestreamError::MarkerUnexpected {
+        //        marker: MARKER_SYMBOL_SOD,
+        //        offset: reader.stream_position()?,
+        //    }
+        //    .into());
+        //}
+
+        //let coding_styles = self.header.coding_style_marker_segment().coding_styles();
+
+        let start_of_data = reader.stream_position()?;
+        info!("SOD start at byte offset {}", start_of_data - 2);
+
+        //loop {
+        //    match reader.read_exact(&mut marker_type) {
+        //        Ok(_) => match marker_type {
+        //            // in bit-stream markers
+        //            MARKER_SYMBOL_SOP => {
+        //                info!("SOP start at byte offset {}", reader.stream_position()? - 2);
+        //                if coding_styles.contains(&CodingStyleDefault::NoSOP) {
+        //                    return Err(CodestreamError::MarkerUnexpected {
+        //                        marker: MARKER_SYMBOL_SOP,
+        //                        offset: reader.stream_position()? - 2,
+        //                    }
+        //                    .into());
+        //                } else {
+        //                    // ITU-T H.800 or ISO/IEC 15444-1 2024, Section A.8.1
+        //                    let mut buf = [0u8; 2];
+        //                    reader.read_exact(&mut buf)?;
+        //                    let lsop = u16::from_be_bytes(buf);
+        //                    // TODO: if using strict parsing, check length == 4
+        //                    reader.read_exact(&mut buf)?;
+        //                    let nsop = u16::from_be_bytes(buf);
+        //                    // TODO: if using strict parsing, check nsop increment matches packet number,
+        //                    // even if SOP wasn't present
+        //                    info!("SOP length {lsop}, sequence number {nsop}");
+        //                }
+        //            }
+        //            MARKER_SYMBOL_EPH => {
+        //                // If packet headers are not in-bit stream (i.e., PPM or PPT marker segments are used), this
+        //                // marker shall not be used in the bit stream
+        //                if !self.header.packed_packet_headers.is_empty()
+        //                    || tile_header.packed_packet_headers.is_some()
+        //                {
+        //                    return Err(CodestreamError::MarkerUnexpected {
+        //                        marker: MARKER_SYMBOL_EPH,
+        //                        offset: reader.stream_position()? - 2,
+        //                    }
+        //                    .into());
+        //                }
+
+        //                if coding_styles.contains(&CodingStyleDefault::NoEPH) {
+        //                    return Err(CodestreamError::MarkerUnexpected {
+        //                        marker: MARKER_SYMBOL_EPH,
+        //                        offset: reader.stream_position()? - 2,
+        //                    }
+        //                    .into());
+        //                } else {
+        //                    // ITU-T H.800 or ISO/IEC 15444-1 2024, Section A.8.2
+        //                    // Empty marker, not even the length.
+        //                }
+        //            }
+        //            // delimiting markers
+        //            MARKER_SYMBOL_EOC => {
+        //                info!("EOC end at byte offset {}", reader.stream_position()?);
+        //                break;
+        //            }
+        //            MARKER_SYMBOL_SOT => {
+        //                // A.4.4
+        //                todo!();
+        //            }
+        //            _ => {
+        //                // TODO: See J.10.3 Packet headers
+        //                //
+        //                // decode packet header B.10.8
+        //                //   1 bit for zero or non-zero length packet
+        //                //   for each sub-band (LL or HL, LH and HH)
+        //                //     for all code-blocks in this sub-band confined to the relevant precinct, in raster order
+        //                //       code-block inclusion bits (if not previously included then tag tree, else one bit)
+        //                //       if code-block included
+        //                //         if first instance of code-block
+        //                //           zero bit-planes information
+        //                //           number of coding passes included
+        //                //           increase of code-block length indicator (Lblock)
+        //                //           for each codeword segment
+        //                //           length of codeword segment
+
+        //                // decode packet data J.10.4
+        //                //   Arithmetic-coded compressed data
+
+        //                // Decode codestream packet header
+
+        //                // Bits are packed into bytes from the MSB to the LSB.
+        //                // Once a complete byte is assembled, it is appended to
+        //                // the packet header.
+
+        //                // If the value of the byte is 0xFF, the next byte
+        //                // includes an extra zero bit stuffed into the MSB
+
+        //                // Once all bits of the packet header have been
+        //                // assembled, the last byte is packed to the byte
+        //                // boundary and emitted
+
+        //                // The last byte in the packet header shall not be an
+        //                // 0xFF value (thus the single zero bit stuffed after a
+        //                // byte with 0xFF must be included even if the 0xFF
+        //                // would otherwise have been the last byte).
+        //            }
+        //        },
+
+        //        Err(e) => match e.kind() {
+        //            io::ErrorKind::UnexpectedEof => break,
+        //            _ => return Err(e.into()),
+        //        },
+        //    }
+        //}
 
         let end_of_data = reader.stream_position()?;
         info!("SOD end at byte offset {}", end_of_data);
@@ -2739,11 +2806,6 @@ impl ContiguousCodestream {
         reader.seek(io::SeekFrom::Start(start_of_data))?;
 
         reader.seek(io::SeekFrom::Start(end_of_data))?;
-
-        self.tiles.push(Tile {
-            header: tile_header,
-            parts: vec![],
-        });
 
         Ok(())
     }
@@ -2788,6 +2850,69 @@ struct Component {}
 // left hand reference grid point at location (XOsiz, YOsiz), and its lower
 // right hand reference grid point at location (Xsiz-1, Ysiz-1).
 struct ImageArea {}
+
+type DecoderResult = Result<ContiguousCodestream, JP2DecoderError>;
+
+struct Info {}
+
+#[derive(Debug)]
+pub struct JP2Decoder<R> {
+    reader: R,
+    codestream: ContiguousCodestream,
+    decoded: bool,
+}
+
+impl<R: Read + Seek> JP2Decoder<R> {
+    pub fn new(r: R) -> Self {
+        Self {
+            reader: r,
+            codestream: ContiguousCodestream::default(),
+            decoded: false,
+        }
+    }
+
+    pub fn read_codestream(&mut self) -> Result<&ContiguousCodestream, Box<dyn error::Error>> {
+        if !self.decoded {
+            self.codestream.decode(&mut self.reader)?;
+            self.decoded = true;
+        }
+        Ok(&self.codestream)
+    }
+}
+
+pub trait Decoder {
+    /// returns a tuple containing the width and height of the image
+    fn dimensions(&self) -> (u32, u32);
+    /// returns the number of components that make up the image
+    fn number_of_components(&self) -> u32;
+    /// This function takes a slice of bytes and writes the sample data of the component into it.
+    ///
+    /// # Panics
+    /// This function panics if there is not enough space in the buffer.
+    fn read_component(
+        &mut self,
+        component_index: u32,
+        buf: &mut [u8],
+    ) -> Result<(), Box<dyn error::Error>>;
+}
+
+impl<R: Read + Seek> Decoder for JP2Decoder<R> {
+    fn read_component(
+        &mut self,
+        _component_index: u32,
+        _buffer: &mut [u8],
+    ) -> Result<(), Box<dyn error::Error>> {
+        unimplemented!("Read component not ready");
+    }
+
+    fn dimensions(&self) -> (u32, u32) {
+        todo!()
+    }
+
+    fn number_of_components(&self) -> u32 {
+        todo!()
+    }
+}
 
 pub fn decode_jpc<R: io::Read + io::Seek>(
     reader: &mut R,

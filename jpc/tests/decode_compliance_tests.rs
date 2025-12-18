@@ -6,8 +6,8 @@ use std::{
 };
 
 use jpc::{
-    decode_jpc, CodingBlockStyle, CommentRegistrationValue, MultipleComponentTransformation,
-    ProgressionOrder, QuantizationStyle, TransformationFilter,
+    decode_jpc, CodingBlockStyle, CommentRegistrationValue, Decoder, JP2Decoder,
+    MultipleComponentTransformation, ProgressionOrder, QuantizationStyle, TransformationFilter,
 };
 
 mod shared;
