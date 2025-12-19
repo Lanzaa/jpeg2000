@@ -1180,9 +1180,11 @@ impl ImageAndTileSizeMarkerSegment {
     // numXtiles = [(Xsiz - XTOsiz) / XTsiz]
     // numYtiles = [(Ysiz - YTOsiz) / YTsiz]
     fn num_x_tiles(&self) -> u32 {
+        // TODO find test case where this is wrong, it should be div_ceil
         (self.reference_grid_width() - self.tile_horizontal_offset()) / self.reference_tile_width()
     }
     fn num_y_tiles(&self) -> u32 {
+        // TODO find test case where this is wrong, it should be div_ceil
         (self.reference_grid_height() - self.tile_vertical_offset()) / self.reference_tile_height()
     }
 
@@ -2113,6 +2115,12 @@ impl ContiguousCodestream {
 
         Ok(segment)
     }
+
+    fn number_of_tiles(&self) -> u32 {
+        // TODO return type, how many tiles is reasonable?
+        let siz = &self.header.image_and_tile_size_marker_segment;
+        siz.num_x_tiles() * siz.num_y_tiles()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -2525,17 +2533,6 @@ impl ContiguousCodestream {
             sot.offset, _consume_until
         );
 
-        // TODO move initialization/resize somewhere else
-        if self.tiles.len() <= sot.tile_index() {
-            let ns = sot.tile_index() + 1;
-            info!("Resizing tiles vec to {}", ns);
-            self.tiles.resize_with(ns, || None);
-        }
-        info!(
-            "tiles len: {}, requesting index {}",
-            self.tiles.len(),
-            sot.tile_index()
-        );
         assert!(
             self.tiles.len() > sot.tile_index(),
             "Expected tiles to be initialized."
@@ -2813,16 +2810,15 @@ impl ContiguousCodestream {
         // The main header is found at the beginning of the codestream
         self.header = self.decode_main_header(reader)?;
 
+        let no_tiles = self.number_of_tiles();
+        info!("Resizing tiles vec to {}", no_tiles);
+        self.tiles.resize_with(no_tiles as usize, || None);
         let no_components = self
             .header
             .image_and_tile_size_marker_segment
             .no_components();
         let mut marker_type: MarkerSymbol = [0; 2];
 
-        //  Err(e) => match e.kind() {
-        //      io::ErrorKind::UnexpectedEof => break,
-        //      _ => return Err(e.into()),
-        //  },
         loop {
             match reader.read_exact(&mut marker_type) {
                 Ok(_) => (),
@@ -2834,10 +2830,9 @@ impl ContiguousCodestream {
             match marker_type {
                 MARKER_SYMBOL_SOT => {
                     // start of tile-part
+                    info!("Decoding a tile");
                     let r = self.decode_tile_part_and_data(reader);
-                    info!("umm: {:?}", r);
-                    r?;
-                    // todo!("need to consume tile-part header and bitstream");
+                    info!("Decoded a tile umm: {:?}", r);
                 }
                 MARKER_SYMBOL_EOC => {
                     // end of codestream
