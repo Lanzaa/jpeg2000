@@ -1603,6 +1603,10 @@ impl ContiguousCodestream {
 
         // TNSot
         reader.read_exact(&mut segment.no_tile_parts)?;
+        info!(
+            "SOT number of tile parts: {}",
+            u8::from_be_bytes(segment.no_tile_parts)
+        );
 
         info!("SOT end at byte offset {}", reader.stream_position()?);
 
@@ -2532,6 +2536,7 @@ impl ContiguousCodestream {
     ) -> Result<(), Box<dyn error::Error>> {
         info!("SOT start at byte offset {}", reader.stream_position()? - 2);
         let sot = self.decode_sot(reader)?;
+        // TODO handle zero length, which implies read to end
         info!("SOT length: {}", sot.tile_length());
         info!("SOT offset: {}", sot.offset);
         let _consume_until = sot.offset + sot.tile_length() as u64;
@@ -2675,6 +2680,7 @@ impl ContiguousCodestream {
         //}
 
         // TODO handle bit stream
+        // TODO handle zero
         let pos = reader.stream_position()?;
         let to_consume = _consume_until - pos;
         let mut buf = vec![0u8; to_consume as usize]; //Vec::with_capacity(to_consume as usize);
@@ -3167,7 +3173,9 @@ fn decode_packet<R: io::Read + io::Seek>(
     while bit_reader.next_bit() {
         lblock += 1; // Lblock increases for each 1
     }
+    info!("lblock: {}", lblock);
     let count_read = lblock + coding_pass_count.ilog2() as u8;
+
     println!("count read {}", count_read);
     let coded_bytes = bit_reader.take(count_read);
     println!("Reading {} bytes from reader", coded_bytes);
@@ -3283,5 +3291,24 @@ mod tests {
             let mut br = BitReader::new(&mut cursor);
             assert_eq!(exp, parse_coding_pass(&mut br));
         }
+    }
+
+    #[test]
+    #[ignore = "TODO, need proper decoding and more data passed in"]
+    fn test_packet_decode_consume_03() {
+        // test case c0p0
+        let ba = b"\xdf\x85\xa8\x94\x36\x0f\x77\x22\xea\xf1";
+
+        let mut ctx = PacketContext {
+            inclusion: TagTreeDecoder::new(1, 1),
+            zero_bits: TagTreeDecoder::new(1, 1),
+            pass_counts: TagTreeDecoder::new(1, 1),
+            lengths: TagTreeDecoder::new(1, 1),
+        };
+        let mut reader = Cursor::new(ba);
+
+        let r = decode_packet(&mut ctx, &mut reader);
+        assert!(r.is_ok());
+        assert_eq!(reader.position(), 9, "expected to consume 9 bytes");
     }
 }
