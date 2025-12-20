@@ -2931,7 +2931,7 @@ pub trait Decoder {
     /// This function panics if there is not enough space in the buffer.
     fn read_component(
         &mut self,
-        component_index: u32,
+        component_index: u16,
         buf: &mut [u8],
     ) -> Result<(), Box<dyn error::Error>>;
 }
@@ -2939,10 +2939,13 @@ pub trait Decoder {
 impl<R: Read + Seek> Decoder for JP2Decoder<R> {
     fn read_component(
         &mut self,
-        component_index: u32,
+        component_index: u16,
         buffer: &mut [u8],
     ) -> Result<(), Box<dyn error::Error>> {
         // Read component into buffer
+        if component_index >= self.no_components() {
+            panic!("Invalid component index");
+        }
 
         // what is size needed?
         // image x,y size * bitdepth for component
@@ -2961,7 +2964,7 @@ impl<R: Read + Seek> Decoder for JP2Decoder<R> {
             buffer.len()
         );
         assert!(
-            buf_needed > buffer.len(),
+            buf_needed >= buffer.len(),
             "Insufficient buffer space for component samples."
         );
 
