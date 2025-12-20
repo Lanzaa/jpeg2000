@@ -5,8 +5,11 @@ use jpc::{
     MultipleComponentTransformation, ProgressionOrder, QuantizationStyle, TransformationFilter,
 };
 
+mod shared;
+
 #[test]
 fn test_sop() {
+    shared::init_logger();
     let filename = "sop.j2k";
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

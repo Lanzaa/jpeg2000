@@ -441,11 +441,17 @@ pub struct StartOfTileSegment {
 }
 
 impl StartOfTileSegment {
+    fn tile_index(&self) -> usize {
+        u16::from_be_bytes(self.tile_index) as usize
+    }
     fn tile_length(&self) -> u32 {
         u32::from_be_bytes(self.tile_length)
     }
-    fn tile_index(&self) -> usize {
-        u16::from_be_bytes(self.tile_index) as usize
+    fn tile_part_index(&self) -> u8 {
+        u8::from_be_bytes(self.tile_part_index)
+    }
+    fn no_tile_parts(&self) -> u8 {
+        u8::from_be_bytes(self.no_tile_parts)
     }
 }
 
