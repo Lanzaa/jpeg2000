@@ -757,7 +757,7 @@ fn test_sample_jp2_file(filename: &str, expected: ExpectedConfiguration) -> JP2F
     let file = File::open(path).expect("file should exist");
     let mut reader = BufReader::new(file);
     let result = decode_jp2(&mut reader);
-    assert!(result.is_ok());
+    assert!(result.is_ok(), "{:?}", result);
     let boxes = result.unwrap();
     assert!(boxes.length() > 0);
 
