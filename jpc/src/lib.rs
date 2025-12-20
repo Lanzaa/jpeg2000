@@ -1248,6 +1248,13 @@ impl ImageAndTileSizeMarkerSegment {
             self.tile_y_lower(t) - self.tile_y_upper(t),
         )
     }
+
+    fn image_dimensions(&self) -> (u32, u32) {
+        (
+            self.reference_tile_width() - self.image_horizontal_offset(),
+            self.reference_tile_height() - self.image_vertical_offset(),
+        )
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -2917,7 +2924,7 @@ pub trait Decoder {
     /// returns a tuple containing the width and height of the image
     fn dimensions(&self) -> (u32, u32);
     /// returns the number of components that make up the image
-    fn number_of_components(&self) -> u32;
+    fn no_components(&self) -> u16;
     /// This function takes a slice of bytes and writes the sample data of the component into it.
     ///
     /// # Panics
@@ -2932,18 +2939,47 @@ pub trait Decoder {
 impl<R: Read + Seek> Decoder for JP2Decoder<R> {
     fn read_component(
         &mut self,
-        _component_index: u32,
-        _buffer: &mut [u8],
+        component_index: u32,
+        buffer: &mut [u8],
     ) -> Result<(), Box<dyn error::Error>> {
+        // Read component into buffer
+
+        // what is size needed?
+        // image x,y size * bitdepth for component
+        let (width, height) = self.dimensions();
+        let precision = self
+            .codestream
+            .header
+            .image_and_tile_size_marker_segment
+            .precision(component_index as usize)?;
+
+        let buf_needed: usize = (width * height * (precision as u32).div_ceil(8)) as usize;
+        info!(
+            "To read component index {} need {} bytes, given: {}",
+            component_index,
+            buf_needed,
+            buffer.len()
+        );
+        assert!(
+            buf_needed > buffer.len(),
+            "Insufficient buffer space for component samples."
+        );
+
         unimplemented!("Read component not ready");
     }
 
     fn dimensions(&self) -> (u32, u32) {
-        todo!()
+        self.codestream
+            .header
+            .image_and_tile_size_marker_segment
+            .image_dimensions()
     }
 
-    fn number_of_components(&self) -> u32 {
-        todo!()
+    fn no_components(&self) -> u16 {
+        self.codestream
+            .header
+            .image_and_tile_size_marker_segment
+            .no_components()
     }
 }
 

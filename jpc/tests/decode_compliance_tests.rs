@@ -91,12 +91,12 @@ fn test_j10_example() -> Result<(), String> {
     shared::init_logger();
     let j2k = test_file("j10.j2k")?;
     let file = File::open(j2k.as_path()).expect("Unable to load test file");
-    let mut reader = BufReader::new(file);
+    let reader = BufReader::new(file);
     let mut decoder = JP2Decoder::new(reader);
-    let result = decoder.read_codestream();
-    assert!(result.is_ok());
-    let codestream = result.unwrap();
-
+    let codestream = match decoder.read_codestream() {
+        Ok(cs) => cs,
+        Err(e) => panic!("Error decoding codestream: {}", e),
+    };
     let header = codestream.header();
 
     let siz = header.image_and_tile_size_marker_segment();
@@ -116,28 +116,19 @@ fn test_j10_example() -> Result<(), String> {
     assert!(!siz.values_are_signed(0).unwrap());
     assert_eq!(siz.horizontal_separation(0).unwrap(), 1);
     assert_eq!(siz.vertical_separation(0).unwrap(), 1);
-    //assert_eq!(siz.)
+    let precision = siz.precision(0).unwrap();
+    assert_eq!(precision, 8);
+
+    assert_eq!(decoder.no_components(), 1);
+
+    let (width, height) = decoder.dimensions();
+    assert_eq!(width, 1, "expected width to be decoded correctly");
+    assert_eq!(height, 9, "expected height to be decoded correctly");
 
     // Pull out component data
-    assert_eq!(siz.no_components(), 1);
     let data_exp = [101, 103, 104, 105, 96, 97, 96, 102, 109 + 1] as [u8; _]; // TODO remove +1
-    let mut buf: [u8; _] = [0u8; 1 * 9];
-    decoder.read_component(0, &mut buf);
-    //codestream.components[0].read_samples(&mut buf);
+    let mut buf = vec![0u8; (width * height) as usize];
+    decoder.read_component(0, &mut buf).unwrap();
     assert_eq!(buf, data_exp, "Sample data should match.");
-
-    // let tiles = codestream.tiles();
-    // assert_eq!(1, tiles.len(), "Expected a single tile for this image.");
-    // println!("single tile? {:?}", tiles[0]);
-    // let t0 = &tiles[0];
-    // //assert_eq!(t0.header.length, 30);
-    // let expected_component: Vec<u8> = vec![101, 103, 104, 105, 96, 97, 96, 102, 109];
-
-    //let decoded_component = ...;
-
-    //println!("pgx samples: {:?}", pgx.samples);
-    panic!("TODO");
-
-    // assert_eq!(pgx.samples, codestream.component[0].samples);
-    Ok(())
+    todo!("Did we really pass !??!  YAY !!!");
 }
