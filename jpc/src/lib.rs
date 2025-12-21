@@ -6,6 +6,8 @@ use std::error;
 use std::fmt;
 use std::io;
 use std::io::prelude::*;
+use std::ops::Index;
+use std::ops::IndexMut;
 use std::str;
 
 mod coder;
@@ -441,8 +443,8 @@ pub struct StartOfTileSegment {
 }
 
 impl StartOfTileSegment {
-    fn tile_index(&self) -> usize {
-        u16::from_be_bytes(self.tile_index) as usize
+    fn tile_index(&self) -> u16 {
+        u16::from_be_bytes(self.tile_index)
     }
     fn tile_length(&self) -> u32 {
         u32::from_be_bytes(self.tile_length)
@@ -1479,7 +1481,34 @@ pub struct ContiguousCodestream {
     offset: u64,
     length: u16,
     header: Header,
-    tiles: Vec<Option<Tile>>,
+    tiles: TileVec<Tile>,
+    image_decoder: ImageDecoderThingy,
+}
+
+/// A helper so indexing uses u16
+#[derive(Default, Debug)]
+struct TileVec<T>(Vec<Option<T>>);
+
+impl<T> TileVec<T> {
+    fn initialize(&mut self, no_tiles: u16) {
+        self.0.resize_with(no_tiles as usize, || None);
+    }
+    fn len(&self) -> u16 {
+        self.0.len() as u16
+    }
+}
+
+impl<T> Index<u16> for TileVec<T> {
+    type Output = Option<T>;
+
+    fn index(&self, index: u16) -> &Self::Output {
+        self.0.index(index as usize)
+    }
+}
+impl<T> IndexMut<u16> for TileVec<T> {
+    fn index_mut(&mut self, index: u16) -> &mut Self::Output {
+        self.0.index_mut(index as usize)
+    }
 }
 
 impl ContiguousCodestream {
@@ -2133,10 +2162,11 @@ impl ContiguousCodestream {
         Ok(segment)
     }
 
-    fn number_of_tiles(&self) -> u32 {
+    fn number_of_tiles(&self) -> u16 {
         // TODO return type, how many tiles is reasonable?
         let siz = &self.header.image_and_tile_size_marker_segment;
-        siz.num_x_tiles() * siz.num_y_tiles()
+        let no_tiles = siz.num_x_tiles() * siz.num_y_tiles();
+        no_tiles as u16
     }
 }
 
@@ -2310,6 +2340,7 @@ struct Image {}
 // selected subset of these subbands.
 #[derive(Debug, Default)]
 struct Tile {
+    tile_index: u16,
     tile_parts: Vec<TilePart>,
 
     /// Collect the optional header information that can only be specified in the first tile-part
@@ -2631,7 +2662,10 @@ impl ContiguousCodestream {
         // On first pass we initialize the tile and populate the optional headers
         let mut optional_headers = if first_pass {
             info!("first pass, initializing tile and optional_headers");
-            self.tiles[sot.tile_index()] = Some(Tile::default());
+            self.tiles[sot.tile_index()] = Some(Tile {
+                tile_index,
+                ..Default::default()
+            });
             Some(TileOptionalHeaders::default())
         } else {
             None
@@ -2754,13 +2788,21 @@ impl ContiguousCodestream {
         }
         tile.tile_parts.push(tile_part);
 
-        // TODO handle bit stream
-        // TODO handle zero
+        // TODO cleanup code. dropped ownership of tile-part, grab reference instead
+        let tile_part = tile.tile_parts.last().expect("Where did tile part go?");
+
         let pos = reader.stream_position()?;
         let to_consume = _consume_until - pos;
-        let mut buf = vec![0u8; to_consume as usize]; //Vec::with_capacity(to_consume as usize);
-                                                      //reader.take(to_consume as u64).read_to_end(&mut buf)?;
-        reader.read_exact(&mut buf)?;
+        if self.image_decoder.should_process(tile_part) {
+            // TODO handle bit stream
+            // TODO handle zero
+            let mut buf = vec![0u8; to_consume as usize];
+            reader.read_exact(&mut buf)?;
+            self.image_decoder
+                .process(&self.header, tile, tile_part, &buf);
+        } else {
+            reader.seek_relative(to_consume as i64)?;
+        }
 
         Ok(())
     }
@@ -2774,7 +2816,7 @@ impl ContiguousCodestream {
 
         let no_tiles = self.number_of_tiles();
         info!("Initialize tiles vec to length {}", no_tiles);
-        self.tiles.resize_with(no_tiles as usize, || None);
+        self.tiles.initialize(no_tiles);
         let mut marker_type: MarkerSymbol = [0; 2];
 
         loop {

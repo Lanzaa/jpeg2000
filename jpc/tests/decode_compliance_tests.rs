@@ -40,11 +40,12 @@ fn test_c0p0() -> Result<(), String> {
 
     let j2k = test_file("p0_01.j2k")?;
     let file = File::open(j2k.as_path()).expect("Unable to load test file");
-    let mut reader = BufReader::new(file);
-    let result = decode_jpc(&mut reader);
-    assert!(result.is_ok());
-    let codestream = result.unwrap();
-
+    let reader = BufReader::new(file);
+    let mut decoder = JP2Decoder::new(reader);
+    let codestream = match decoder.read_codestream() {
+        Ok(cs) => cs,
+        Err(e) => panic!("Error decoding codestream: {}", e),
+    };
     let header = codestream.header();
 
     let siz = header.image_and_tile_size_marker_segment();
@@ -65,26 +66,27 @@ fn test_c0p0() -> Result<(), String> {
     assert_eq!(siz.horizontal_separation(0).unwrap(), 1);
     assert_eq!(siz.vertical_separation(0).unwrap(), 1);
     info!("Hello world");
+    let precision = siz.precision(0).unwrap();
+    assert_eq!(precision, 8);
 
     // Pull out component data
     assert_eq!(siz.no_components(), 1);
-    let mut buf: [u8; _] = [0u8; 128 * 128];
-    todo!("Implement component grab");
-    //codestream.components[0].read_samples(&mut buf);
-    assert_eq!(buf, pgx_data.as_slice(), "Sample data should match.");
 
-    //let tiles = codestream.tiles();
-    //assert_eq!(1, tiles.len(), "Expected a single tile for this image.");
-    //println!("single tile? {:?}", tiles[0]);
-    //assert_eq!("tile 0 length", 7314);
+    let (width, height) = decoder.dimensions();
+    assert_eq!(width, 128, "expected width to be decoded correctly");
+    assert_eq!(height, 128, "expected height to be decoded correctly");
+    // Pull out component data
+    let mut buf = vec![0u8; (width * height) as usize];
+    decoder.read_component(0, &mut buf).unwrap();
+    let fp = 40;
+    assert_eq!(
+        pgx_data.as_slice()[..fp],
+        buf[..fp],
+        "Sample data should match."
+    );
+    assert_eq!(pgx_data.as_slice(), buf, "Sample data should match.");
 
-    //let decoded_component = ...;
-
-    //println!("pgx samples: {:?}", pgx.samples);
-    panic!("TODO");
-
-    // assert_eq!(pgx.samples, codestream.component[0].samples);
-    Ok(())
+    todo!("Did we really pass !??!  YAY !!!");
 }
 
 #[test]
