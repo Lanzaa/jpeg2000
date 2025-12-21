@@ -2963,14 +2963,14 @@ impl TilePartialDecode {
                 // try Main COD
             }
         };
-        let partial_packet_thingy = self.partial_packet.get_or_insert_with(PP::default);
+        let _partial_packet_thingy = self.partial_packet.get_or_insert_with(|| {
+            info!("initializingasdfkajsdlf packer thinaghasdfg");
+            PP {
+                ..Default::default()
+            }
+        });
         //.expect("Where PP go? TODO bad error message");
         todo!("Unable to process tile-part");
-    }
-
-    ///
-    fn progression_order(&self) -> ProgressionOrderChangeSegment {
-        todo!()
     }
 }
 
@@ -3029,6 +3029,8 @@ impl<R: Read + Seek> Decoder for JP2Decoder<R> {
         component_index: u16,
         buffer: &mut [u8],
     ) -> Result<(), Box<dyn error::Error>> {
+        self.read_codestream(); // ensure codestream is decoded
+
         // Read component into buffer
         if component_index >= self.no_components() {
             panic!("Invalid component index");
@@ -3054,7 +3056,6 @@ impl<R: Read + Seek> Decoder for JP2Decoder<R> {
             buf_needed >= buffer.len(),
             "Insufficient buffer space for component samples."
         );
-
         // iterate over tiles and tile-parts to decode
 
         unimplemented!("Read component not ready");
