@@ -1527,7 +1527,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_siz<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
     ) -> Result<ImageAndTileSizeMarkerSegment, Box<dyn error::Error>> {
         info!("SIZ start at byte offset {}", reader.stream_position()? - 2);
@@ -1613,7 +1613,7 @@ impl ContiguousCodestream {
         Ok(segment)
     }
     fn decode_sot<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
     ) -> Result<StartOfTileSegment, Box<dyn error::Error>> {
         let offset = reader.stream_position()? - 2;
@@ -1650,7 +1650,7 @@ impl ContiguousCodestream {
 
     // A.6.1 - Coding style default (COD)
     fn decode_cod<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
     ) -> Result<CodingStyleMarkerSegment, Box<dyn error::Error>> {
         info!("COD start at byte offset {}", reader.stream_position()? - 2);
@@ -1746,7 +1746,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_rgn<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
         no_components: u16,
     ) -> Result<RegionOfInterestSegment, Box<dyn error::Error>> {
@@ -1767,7 +1767,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_poc<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
         no_components: u16,
     ) -> Result<ProgressionOrderChangeSegment, Box<dyn error::Error>> {
@@ -1814,7 +1814,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_ppm<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
     ) -> Result<PackedPacketHeaderSegment, Box<dyn error::Error>> {
         info!("PPM start at byte offset {}", reader.stream_position()? - 2);
@@ -1840,7 +1840,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_ppt<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
     ) -> Result<TilePackedPacketHeaderSegment, Box<dyn error::Error>> {
         info!("PPT start at byte offset {}", reader.stream_position()? - 2);
@@ -1862,7 +1862,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_tlm<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
     ) -> Result<TilePartLengthsSegment, Box<dyn error::Error>> {
         info!("TLM start at byte offset {}", reader.stream_position()? - 2);
@@ -1922,7 +1922,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_quantization_values<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
         quantization_style: QuantizationStyle,
         no_decomposition_levels: u8,
@@ -1962,7 +1962,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_qcd<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
     ) -> Result<QuantizationDefaultMarkerSegment, Box<dyn error::Error>> {
         info!("QCD start at byte offset {}", reader.stream_position()? - 2);
@@ -1991,7 +1991,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_qcc<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
         no_components: u16,
     ) -> Result<QuantizationComponentSegment, Box<dyn error::Error>> {
@@ -2032,7 +2032,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_plm<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
     ) -> Result<PacketLengthSegment, Box<dyn error::Error>> {
         info!("PLM start at byte offset {}", reader.stream_position()? - 2);
@@ -2057,7 +2057,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_packet_length<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
         vec: &mut Vec<u8>,
     ) -> Result<(), Box<dyn error::Error>> {
@@ -2090,7 +2090,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_plt<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
     ) -> Result<TilePacketLength, Box<dyn error::Error>> {
         info!("PLT start at byte offset {}", reader.stream_position()? - 2);
@@ -2110,7 +2110,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_crg<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
         no_components: u16,
     ) -> Result<ComponentRegistrationSegment, Box<dyn error::Error>> {
@@ -2139,7 +2139,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_com<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
     ) -> Result<CommentMarkerSegment, Box<dyn error::Error>> {
         info!("COM start at byte offset {}", reader.stream_position()? - 2);
