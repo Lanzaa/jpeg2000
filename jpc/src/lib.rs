@@ -2892,6 +2892,92 @@ struct Component {}
 // right hand reference grid point at location (Xsiz-1, Ysiz-1).
 struct ImageArea {}
 
+#[derive(Default, Debug)]
+struct ImageDecoderThingy {
+    tile_partials: TileVec<TilePartialDecode>,
+}
+
+/// TODO make the methods a trait so we can specialize a partial image decoder and an ignore
+impl ImageDecoderThingy {
+    fn should_process(&self, _tile_part: &TilePart) -> bool {
+        true // TODO maybe ignore tile_parts that are irrelevant
+    }
+
+    fn process(&mut self, arg: &Header, tile: &Tile, tile_part: &TilePart, buf: &[u8]) {
+        let tile_index = tile.tile_index;
+        assert_eq!(
+            tile_index,
+            tile_part.sot_segment.tile_index(),
+            "expected to be passed the correct tile/tile-part pairing"
+        );
+        info!(
+            "NOT decoding tile-part for tile index {}, part {}",
+            tile_index, tile_part.sot_segment.tile_part_index[0]
+        );
+        if self.tile_partials.len() <= tile_index {
+            // TODO move this initialization somewhere else
+            self.tile_partials.initialize(tile_index + 1);
+        }
+
+        let partial: &mut TilePartialDecode = match self.tile_partials[tile_index].as_mut() {
+            Some(p) => p,
+            None => {
+                self.tile_partials[tile_index] = Some(TilePartialDecode::default());
+                self.tile_partials[tile_index].as_mut().unwrap()
+            }
+        };
+
+        info!("need to process data: {:x?}...", &buf[..20.min(buf.len())]);
+        partial.process(tile_part, buf);
+        info!("finished processing tile-part");
+
+        //todo!("tile-part decode");
+    }
+}
+
+/// Decode in progress for a specific tile
+#[derive(Default, Debug)]
+struct TilePartialDecode {
+    partial_packet: Option<PP>,
+}
+impl TilePartialDecode {
+    /// Process a new tile-part
+    fn process(&mut self, tile_part: &TilePart, buf: &[u8]) {
+        // TODO determine proper progression order: layer/component/resolution level/position information
+
+        // Tile-part POC > Main POC > Tile-part COD > Main COD
+        let po = match tile_part.progression_order_change {
+            Some(po) => {
+                // TODO change error to be friendly
+                assert!(
+                    self.partial_packet.is_none(),
+                    "Cannot change order during a packet."
+                );
+                po
+            }
+            None => {
+                todo!("implement progression order lookup");
+                // not in tile-part POC, so
+                // try Main POC
+                // try tile COD
+                // try Main COD
+            }
+        };
+        let partial_packet_thingy = self.partial_packet.get_or_insert_with(PP::default);
+        //.expect("Where PP go? TODO bad error message");
+        todo!("Unable to process tile-part");
+    }
+
+    ///
+    fn progression_order(&self) -> ProgressionOrderChangeSegment {
+        todo!()
+    }
+}
+
+/// partially decoded packet
+#[derive(Debug, Default)]
+struct PP {}
+
 type DecoderResult = Result<ContiguousCodestream, JP2DecoderError>;
 
 struct Info {}
