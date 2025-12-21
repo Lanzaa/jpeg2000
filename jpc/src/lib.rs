@@ -1518,7 +1518,7 @@ impl ContiguousCodestream {
 
     // Length of marker segment in bytes (not including the marker).
     fn decode_length<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
     ) -> Result<u16, Box<dyn error::Error>> {
         let mut length: [u8; 2] = [0; 2];
@@ -1676,7 +1676,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_coding_style_parameters<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
         coding_style: u8,
         coding_style_parameters: &mut CodingStyleParameters,
@@ -1702,7 +1702,7 @@ impl ContiguousCodestream {
 
     // TODO: Convert to usize/u16?
     fn decode_component_index<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
         no_components: u16,
     ) -> Result<[u8; 2], Box<dyn error::Error>> {
@@ -1720,7 +1720,7 @@ impl ContiguousCodestream {
     }
 
     fn decode_coc<R: io::Read + io::Seek>(
-        &mut self,
+        &self,
         reader: &mut R,
         no_components: u16,
     ) -> Result<CodingStyleComponentSegment, Box<dyn error::Error>> {
