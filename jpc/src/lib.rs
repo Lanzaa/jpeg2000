@@ -2310,8 +2310,80 @@ struct Image {}
 // selected subset of these subbands.
 #[derive(Debug, Default)]
 struct Tile {
-    header: TileHeader,
-    parts: Vec<u8>,
+    tile_parts: Vec<TilePart>,
+
+    /// Collect the optional header information that can only be specified in the first tile-part
+    /// header.
+    optional_headers: TileOptionalHeaders,
+}
+
+/// Optional markers from a tile's first tile-part header.
+#[derive(Debug, Default)]
+struct TileOptionalHeaders {
+    // COD: No more than one per tile
+    coding_style_marker_segment: Option<CodingStyleMarkerSegment>,
+
+    // COC: No more than one per component
+    coding_style_component_segments: Vec<Option<CodingStyleComponentSegment>>,
+
+    // QCD: No more than one per tile
+    quantization_default_marker_segment: Option<QuantizationDefaultMarkerSegment>,
+
+    // QCC: No more than one per component
+    quantization_component_segments: Vec<Option<QuantizationComponentSegment>>,
+
+    // RGN: No more than one per component
+    regions: Vec<Option<RegionOfInterestSegment>>,
+}
+impl TileOptionalHeaders {
+    fn add_quantization_component_segment(&mut self, qcc: QuantizationComponentSegment) {
+        let index = u16::from_be_bytes(qcc.component_index);
+        let place = &mut self.quantization_component_segments[index as usize];
+        assert!(
+            place.is_none(),
+            "Expected an empty slot. TODO handle as input error"
+        );
+        *place = Some(qcc);
+    }
+
+    fn add_coding_style_component_segment(&mut self, coc: CodingStyleComponentSegment) {
+        let index = u16::from_be_bytes(coc.index);
+        let place = &mut self.coding_style_component_segments[index as usize];
+        assert!(
+            place.is_none(),
+            "Expected an empty slot. TODO handle as input error"
+        );
+        *place = Some(coc);
+    }
+
+    fn add_region(&mut self, rgn: RegionOfInterestSegment) {
+        let index = u16::from_be_bytes(rgn.component_index);
+        let place = &mut self.regions[index as usize];
+        assert!(
+            place.is_none(),
+            "Expected an empty slot. TODO handle as input error"
+        );
+        *place = Some(rgn);
+    }
+}
+
+#[derive(Debug, Default)]
+struct TilePart {
+    /// SOT start of tile-part header
+    /// The SOT gives enough information to maybe skip a tile-part
+    sot_segment: StartOfTileSegment,
+
+    // POC: If present marks a change in the progression order.
+    progression_order_change: Option<ProgressionOrderChangeSegment>,
+
+    // PPT (Optional). Is only allowed when there is no PPM present.
+    packed_packet_headers: Option<TilePackedPacketHeaderSegment>,
+
+    // PLT (Optional)
+    packet_lengths: Vec<PacketLengthSegment>,
+
+    // COM (Optional)
+    comment_marker_segment: Option<CommentMarkerSegment>,
 }
 
 #[derive(Debug, Default)]
@@ -2533,8 +2605,7 @@ impl ContiguousCodestream {
         Ok(header)
     }
 
-    /// Expects reader to be just after SOT marker. Decodes information in SOT and handles the
-    /// following tile-part bitstream.
+    /// Expects reader to be just after SOT marker. Decodes information in SOT.
     fn decode_tile_part_and_data<R: io::Read + io::Seek>(
         &mut self,
         reader: &mut R,
@@ -2549,140 +2620,140 @@ impl ContiguousCodestream {
             "SOT... at offset {}, need to consume until {}, will consume",
             sot.offset, _consume_until
         );
+        let tile_index = sot.tile_index();
 
         assert!(
-            self.tiles.len() > sot.tile_index(),
+            self.tiles.len() > tile_index,
             "Expected tiles to be initialized."
         );
 
-        let first_pass = self.tiles[sot.tile_index()].is_none();
-        if first_pass {
-            self.tiles[sot.tile_index()] = Some(Tile {
-                header: TileHeader::default(),
-                parts: vec![],
-            });
-        }
-        info!("first pass: {}", first_pass);
+        let first_pass = self.tiles[tile_index].is_none();
+        // On first pass we initialize the tile and populate the optional headers
+        let mut optional_headers = if first_pass {
+            info!("first pass, initializing tile and optional_headers");
+            self.tiles[sot.tile_index()] = Some(Tile::default());
+            Some(TileOptionalHeaders::default())
+        } else {
+            None
+        };
 
-        let tile = self.tiles[sot.tile_index()]
-            .as_mut()
-            .expect("Expected tile to be initialized");
+        let mut tile_part = TilePart {
+            sot_segment: sot,
+            ..TilePart::default()
+        };
 
-        // TODO decode header parts
-        let x: u8 = 101;
-        tile.parts.push(x);
+        let no_components = self
+            .header
+            .image_and_tile_size_marker_segment
+            .no_components();
 
-        // TODO decode tile-part data
-        //
         let mut marker_type: MarkerSymbol = [0; 2];
-
-        let no_components = 1;
-        let tile_header = &mut tile.header;
-        tile_header.start_of_tile_segment = sot;
-
         loop {
+            // grab an easier ref to optional_headers
+            let optional_headers = optional_headers.as_mut();
             let pos = reader.stream_position()?;
             reader.read_exact(&mut marker_type)?;
             match marker_type {
+                // SOD start of data
                 MARKER_SYMBOL_SOD => {
-                    info!("POIX04: Found start of data at: {}", pos);
+                    info!("Found start of data at: {}", pos);
                     break;
+                    // reader.seek(io::SeekFrom::Current(-2))?;
+                    // break;
+                }
+                // Some markers are only allowed in the first tile-part
+                MARKER_SYMBOL_COD => {
+                    // TODO better error message and handling of malformed input
+                    assert!(first_pass);
+                    optional_headers.unwrap().coding_style_marker_segment =
+                        Some(self.decode_cod(reader)?);
+                }
+                MARKER_SYMBOL_COC => {
+                    assert!(first_pass);
+                    let coc = self.decode_coc(reader, no_components)?;
+                    optional_headers
+                        .unwrap()
+                        .add_coding_style_component_segment(coc);
+                }
+                MARKER_SYMBOL_QCD => {
+                    assert!(first_pass);
+                    optional_headers
+                        .unwrap()
+                        .quantization_default_marker_segment = Some(self.decode_qcd(reader)?);
+                }
+                MARKER_SYMBOL_QCC => {
+                    assert!(first_pass);
+                    let qcc = self.decode_qcc(reader, no_components)?;
+                    optional_headers
+                        .unwrap()
+                        .add_quantization_component_segment(qcc);
+                }
+                MARKER_SYMBOL_RGN => {
+                    assert!(first_pass);
+                    let rgn = self.decode_rgn(reader, no_components)?;
+                    optional_headers.unwrap().add_region(rgn)
+                }
+                // Optional for every tile-part
+                MARKER_SYMBOL_POC => {
+                    tile_part.progression_order_change =
+                        Some(self.decode_poc(reader, no_components)?);
+                }
+                MARKER_SYMBOL_PPT => {
+                    // The packet headers shall be in only one of three places within the codestream. If the PPM
+                    // marker segment is present, all the packet headers shall be found in the main header.
+                    //
+                    // In this case, the PPT marker segment and packets distributed in the bit stream of the
+                    // tile-parts are disallowed.
+                    if !self.header.packed_packet_headers.is_empty() {
+                        return Err(CodestreamError::MarkerUnexpected {
+                            marker: MARKER_SYMBOL_PPT,
+                            offset: reader.stream_position()? - 2,
+                        }
+                        .into());
+                    }
+
+                    tile_part.packed_packet_headers = Some(self.decode_ppt(reader)?);
+                }
+                MARKER_SYMBOL_PLT => {
+                    let packet_length = self.decode_plm(reader)?;
+                    tile_part.packet_lengths.push(packet_length);
+                }
+                MARKER_SYMBOL_COM => {
+                    tile_part.comment_marker_segment = Some(self.decode_com(reader)?);
                 }
                 [0xff, 0x30..0x3f] => {
-                    info!("POIX02: Found marker: {:?}", marker_type);
+                    todo!("Found unknown marker: {:x?}", marker_type);
                 }
                 [0xff, _] => {
-                    info!("POIX02: Found marker segment: {:x?}", marker_type);
+                    info!("Found marker segment: {:x?}", marker_type);
                     let mut len_buf = [0u8; 2];
                     reader.read_exact(&mut len_buf)?;
                     let length = u16::from_be_bytes(len_buf) as usize;
-                    info!("POIX02. length {}", length);
+                    info!("length {}", length);
                     let mut buf = vec![0u8; length - 2];
                     reader.read_exact(&mut buf)?;
-                    info!("POIX02: length {} data: {:x?}", length, buf);
+                    info!("length {} data: {:x?}", length, buf);
+                    todo!("Need to implement marker segment: {:x?}", marker_type);
                 }
                 _ => {
-                    info!("POIX03: Found not a marker {:?}", marker_type);
+                    todo!("Found not a marker {:x?}", marker_type);
                     break;
                 }
             }
         }
 
-        //loop {
-        //    match reader.read_exact(&mut marker_type) {
-        //        Ok(_) => match marker_type {
-        //            // COD (Optional)
-
-        //            // COC (Optional)
-        //            MARKER_SYMBOL_COC => {
-        //                tile_header.coding_style_component_segment =
-        //                    self.decode_coc(reader, no_components)?;
-        //            }
-
-        //            // QCD (Optional)
-        //            MARKER_SYMBOL_QCD => {
-        //                tile_header.quantization_default_marker_segment =
-        //                    self.decode_qcd(reader)?;
-        //            }
-
-        //            // QCC (Optional)
-        //            MARKER_SYMBOL_QCC => {
-        //                tile_header.quantization_component_segment =
-        //                    self.decode_qcc(reader, no_components)?;
-        //            }
-
-        //            // RGN (Optional)
-        //            MARKER_SYMBOL_RGN => {
-        //                tile_header
-        //                    .regions
-        //                    .push(self.decode_rgn(reader, no_components)?);
-        //            }
-
-        //            // POC (Optional)
-        //            MARKER_SYMBOL_POC => {
-        //                tile_header.progression_order_change =
-        //                    self.decode_poc(reader, no_components)?;
-        //            }
-
-        //            // PPT (Optional)
-        //            MARKER_SYMBOL_PPT => {
-        //                // The packet headers shall be in only one of three places within the codestream. If the PPM
-        //                // marker segment is present, all the packet headers shall be found in the main header.
-        //                //
-        //                // In this case, the PPT marker segment and packets distributed in the bit stream of the
-        //                // tile-parts are disallowed.
-        //                if !self.header.packed_packet_headers.is_empty() {
-        //                    return Err(CodestreamError::MarkerUnexpected {
-        //                        marker: MARKER_SYMBOL_PPT,
-        //                        offset: reader.stream_position()? - 2,
-        //                    }
-        //                    .into());
-        //                }
-
-        //                tile_header.packed_packet_headers = Some(self.decode_ppt(reader)?);
-        //            }
-
-        //            // PLT (Optional)
-        //            MARKER_SYMBOL_PLT => {
-        //                let packet_length = self.decode_plm(reader)?;
-        //                tile_header.packet_lengths.push(packet_length);
-        //            }
-
-        //            // COM (Optional)
-        //            MARKER_SYMBOL_COM => {
-        //                tile_header.comment_marker_segment = Some(self.decode_com(reader)?);
-        //            }
-        //            // COM (Optional)
-        //            MARKER_SYMBOL_SOD => {
-        //                reader.seek(io::SeekFrom::Current(-2))?;
-        //                break;
-        //            }
-        //            _ => panic!(),
-        //        },
-
-        //        Err(e) => return Err(e.into()),
-        //    }
-        //}
+        info!("tiles index {}, tiles {:?}", tile_index, self.tiles);
+        // Update the tile with the new tile-part information
+        let tile = self.tiles[tile_index]
+            .as_mut()
+            .expect("Expected tiles to be initialized");
+        if first_pass {
+            tile.optional_headers = match optional_headers {
+                Some(h) => h,
+                None => panic!("should have been initialized during first pass"),
+            }
+        }
+        tile.tile_parts.push(tile_part);
 
         // TODO handle bit stream
         // TODO handle zero
@@ -2691,126 +2762,8 @@ impl ContiguousCodestream {
         let mut buf = vec![0u8; to_consume as usize]; //Vec::with_capacity(to_consume as usize);
                                                       //reader.take(to_consume as u64).read_to_end(&mut buf)?;
         reader.read_exact(&mut buf)?;
-        info!("POIX11: Tile data {:x?}", buf);
-
-        //self.decode_first_tile_header();
-
-        //self.tiles.push(Tile {
-        //    header: tile_header,
-        //    parts: vec![],
-        //});
 
         Ok(())
-    }
-
-    // A.4 – Construction of the first tile-part header of a given tile
-    fn decode_first_tile_header<R: io::Read + io::Seek>(
-        &mut self,
-        reader: &mut R,
-        no_components: u16,
-    ) -> Result<TileHeader, Box<dyn error::Error>> {
-        let mut tile_header = TileHeader::default();
-
-        let mut marker_type: MarkerSymbol = [0; 2];
-
-        reader.read_exact(&mut marker_type)?;
-
-        // SOT (Required as the first marker segment of every tile-part header)
-        if marker_type != MARKER_SYMBOL_SOT {
-            return Err(CodestreamError::MarkerUnexpected {
-                marker: MARKER_SYMBOL_SOT,
-                offset: reader.stream_position()? - 2,
-            }
-            .into());
-        }
-
-        tile_header.start_of_tile_segment = self.decode_sot(reader)?;
-
-        loop {
-            match reader.read_exact(&mut marker_type) {
-                Ok(_) => match marker_type {
-                    // COD (Optional)
-                    MARKER_SYMBOL_COD => {
-                        tile_header.coding_style_marker_segment = self.decode_cod(reader)?;
-                    }
-
-                    // COC (Optional)
-                    MARKER_SYMBOL_COC => {
-                        tile_header.coding_style_component_segment =
-                            self.decode_coc(reader, no_components)?;
-                    }
-
-                    // QCD (Optional)
-                    MARKER_SYMBOL_QCD => {
-                        tile_header.quantization_default_marker_segment =
-                            self.decode_qcd(reader)?;
-                    }
-
-                    // QCC (Optional)
-                    MARKER_SYMBOL_QCC => {
-                        tile_header.quantization_component_segment =
-                            self.decode_qcc(reader, no_components)?;
-                    }
-
-                    // RGN (Optional)
-                    MARKER_SYMBOL_RGN => {
-                        tile_header
-                            .regions
-                            .push(self.decode_rgn(reader, no_components)?);
-                    }
-
-                    // POC (Optional)
-                    MARKER_SYMBOL_POC => {
-                        tile_header.progression_order_change =
-                            self.decode_poc(reader, no_components)?;
-                    }
-
-                    // PPT (Optional)
-                    MARKER_SYMBOL_PPT => {
-                        // The packet headers shall be in only one of three places within the codestream. If the PPM
-                        // marker segment is present, all the packet headers shall be found in the main header.
-                        //
-                        // In this case, the PPT marker segment and packets distributed in the bit stream of the
-                        // tile-parts are disallowed.
-                        if !self.header.packed_packet_headers.is_empty() {
-                            return Err(CodestreamError::MarkerUnexpected {
-                                marker: MARKER_SYMBOL_PPT,
-                                offset: reader.stream_position()? - 2,
-                            }
-                            .into());
-                        }
-
-                        tile_header.packed_packet_headers = Some(self.decode_ppt(reader)?);
-                    }
-
-                    // PLT (Optional)
-                    MARKER_SYMBOL_PLT => {
-                        let packet_length = self.decode_plm(reader)?;
-                        tile_header.packet_lengths.push(packet_length);
-                    }
-
-                    // COM (Optional)
-                    MARKER_SYMBOL_COM => {
-                        tile_header.comment_marker_segment = Some(self.decode_com(reader)?);
-                    }
-                    // COM (Optional)
-                    MARKER_SYMBOL_SOD => {
-                        reader.seek(io::SeekFrom::Current(-2))?;
-                        break;
-                    }
-                    _ => panic!(),
-                },
-
-                Err(e) => return Err(e.into()),
-            }
-        }
-
-        //self.tiles.push(Tile {
-        //    header: tile_header,
-        //    parts: vec![],
-        //});
-
-        Ok(tile_header)
     }
 
     fn decode<R: io::Read + io::Seek>(
@@ -2821,12 +2774,8 @@ impl ContiguousCodestream {
         self.header = self.decode_main_header(reader)?;
 
         let no_tiles = self.number_of_tiles();
-        info!("Resizing tiles vec to {}", no_tiles);
+        info!("Initialize tiles vec to length {}", no_tiles);
         self.tiles.resize_with(no_tiles as usize, || None);
-        let no_components = self
-            .header
-            .image_and_tile_size_marker_segment
-            .no_components();
         let mut marker_type: MarkerSymbol = [0; 2];
 
         loop {
@@ -2978,6 +2927,8 @@ impl<R: Read + Seek> Decoder for JP2Decoder<R> {
             buf_needed >= buffer.len(),
             "Insufficient buffer space for component samples."
         );
+
+        // iterate over tiles and tile-parts to decode
 
         unimplemented!("Read component not ready");
     }
