@@ -234,7 +234,9 @@ impl MqEncoder {
                 self.byte_out();
             }
 
-            if (self.a & 0x8000) != 0 {
+            if (self.a & 0x8000) == 0 {
+                continue;
+            } else {
                 break;
             }
         }
@@ -440,7 +442,9 @@ impl MqDecoder {
         }
     }
 
-    /// LPS_EXCHANGE - Handle LPS conditional exchange
+    /// LPS_EXCHANGE - Handle LPS conditional exchange.
+    ///
+    /// See ITU T.800 (V4) | ISO/IEC 15444-1:2024 Figure C.17.
     fn lps_exchange(&mut self, cx: usize) -> u8 {
         let index = self.contexts[cx].index as usize;
         let qe = QE_TABLE[index].qe as u32;
@@ -463,7 +467,9 @@ impl MqDecoder {
         }
     }
 
-    /// RENORMD - Decoder renormalization
+    /// RENORMD - Decoder renormalization.
+    ///
+    /// See ITU T.800 (V4) | ISO/IEC 15444-1:2024 Figure C.18
     fn renorm_d(&mut self) {
         loop {
             if self.ct == 0 {
