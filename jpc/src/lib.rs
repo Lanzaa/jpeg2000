@@ -2919,13 +2919,10 @@ impl ImageDecoderThingy {
             self.tile_partials.initialize(tile_index + 1);
         }
 
-        let partial: &mut TilePartialDecode = match self.tile_partials[tile_index].as_mut() {
-            Some(p) => p,
-            None => {
-                self.tile_partials[tile_index] = Some(TilePartialDecode::default());
-                self.tile_partials[tile_index].as_mut().unwrap()
-            }
-        };
+        let partial = self.tile_partials[tile_index].get_or_insert_with(|| {
+            info!("Initialize TilePartialDecode");
+            TilePartialDecode::default()
+        });
 
         info!("need to process data: {:x?}...", &buf[..20.min(buf.len())]);
         partial.process(tile_part, buf);
@@ -2943,26 +2940,10 @@ struct TilePartialDecode {
 impl TilePartialDecode {
     /// Process a new tile-part
     fn process(&mut self, tile_part: &TilePart, buf: &[u8]) {
-        // TODO determine proper progression order: layer/component/resolution level/position information
-
-        // Tile-part POC > Main POC > Tile-part COD > Main COD
-        let po = match tile_part.progression_order_change {
-            Some(po) => {
-                // TODO change error to be friendly
-                assert!(
-                    self.partial_packet.is_none(),
-                    "Cannot change order during a packet."
-                );
-                po
-            }
-            None => {
-                todo!("implement progression order lookup");
-                // not in tile-part POC, so
-                // try Main POC
-                // try tile COD
-                // try Main COD
-            }
-        };
+        if tile_part.progression_order_change.is_some() {
+            todo!("Need to implement tile-part POC handling.");
+            // TODO determine proper progression order: layer/component/resolution level/position information
+        }
         let _partial_packet_thingy = self.partial_packet.get_or_insert_with(|| {
             info!("initializingasdfkajsdlf packer thinaghasdfg");
             PP {
