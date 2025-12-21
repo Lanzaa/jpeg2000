@@ -2280,17 +2280,16 @@ impl Header {
 // Many images have multiple components. This specification has a multiple component transformation to decorrelate threecomponents. This is the only function in this specification that relates components to each other
 struct Image {}
 
-// The image components may be divided into tiles.
+// The image is divided into tiles.
 //
-// These tile-components are rectangular arrays that relate to the same portion
-// of each of the components that make up the image.
 //
-// Thus, tiling of the image actually creates tile-components that can be
-// extracted or decoded independently of each other.
+// These tiles are rectangular regions that relate to the same portion of each of the components
+// that make up the image.
 //
-// This tile independence provides one of the methods for extracting a region
-// of the image
+// Thus, tiling of the image allows regions to be extracted or decoded independently of each other.
+// This tile independence provides one of the methods for extracting a region of the image
 //
+// Each tile is further subdivided into layers, components, resolution levels, and precincts.
 //
 // TODO: Move
 // The tile-components are decomposed into different decomposition levels using
