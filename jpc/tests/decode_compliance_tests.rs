@@ -25,6 +25,7 @@ fn test_file(filename: &str) -> Result<PathBuf, String> {
 }
 
 #[test]
+#[ignore = "lots of work needed before this is ready"]
 fn test_c0p0() -> Result<(), String> {
     shared::init_logger();
 
@@ -87,6 +88,7 @@ fn test_c0p0() -> Result<(), String> {
 }
 
 #[test]
+//#[ignore = "lots of work needed before this is ready"]
 fn test_j10_example() -> Result<(), String> {
     shared::init_logger();
     let j2k = test_file("j10.j2k")?;

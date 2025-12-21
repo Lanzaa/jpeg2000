@@ -2742,7 +2742,6 @@ impl ContiguousCodestream {
             }
         }
 
-        info!("tiles index {}, tiles {:?}", tile_index, self.tiles);
         // Update the tile with the new tile-part information
         let tile = self.tiles[tile_index]
             .as_mut()
