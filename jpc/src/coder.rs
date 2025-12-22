@@ -1,6 +1,8 @@
 //! MQ-Coder: Arithmetic Entropy Coding for JPEG2000
 //! Implementation based on ISO/IEC 15444-1:2019 Annex C
 
+use log::{debug, info};
+
 /// Probability estimation state table entry
 #[derive(Debug, Clone, Copy)]
 struct QeEntry {
@@ -77,9 +79,9 @@ struct ContextState {
 }
 
 /// Special contexts
-const UNIFORM: usize = 18;
-const RUN_LEN: usize = 17;
-const ZERO_CTX: usize = 0;
+pub const UNIFORM: usize = 18;
+pub const RUN_LEN: usize = 17;
+pub const ZERO_CTX: usize = 0;
 
 /// MQ Encoder
 pub struct MqEncoder {
@@ -325,6 +327,17 @@ impl MqEncoder {
     }
 }
 
+pub trait Decoder {
+    fn decode_bit(&mut self, cx: usize) -> u8;
+}
+
+pub fn standard_decoder(bytes: &[u8]) -> MqDecoder {
+    let mut decoder = MqDecoder::new(19);
+    decoder.reset_contexts();
+    decoder.init(bytes);
+    decoder
+}
+
 /// MQ Decoder
 #[derive(Debug)]
 pub struct MqDecoder {
@@ -523,6 +536,12 @@ impl MqDecoder {
             self.c += b << 8;
             self.ct = 8;
         }
+    }
+}
+
+impl Decoder for MqDecoder {
+    fn decode_bit(&mut self, cx: usize) -> u8 {
+        self.decode(cx)
     }
 }
 

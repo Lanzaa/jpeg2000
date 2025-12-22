@@ -8,7 +8,9 @@ use std::io;
 use std::io::prelude::*;
 use std::str;
 
+mod code_block;
 mod coder;
+mod shared;
 mod tag_tree;
 
 #[derive(Debug)]
