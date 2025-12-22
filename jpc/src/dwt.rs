@@ -809,7 +809,7 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_1d_53() {
+    fn test_decode_1d_j10() {
         // example given in J.10
         let processor = DwtProcessor::new(FilterType::Reversible53);
         let exp_transformed = [-26.0, 1.0, -22.0, 5.0, -30.0, 1.0, -32.0, 0.0, -19.0];
@@ -831,6 +831,29 @@ mod tests {
                 recon
             );
         }
+    }
+
+    #[test]
+    fn test_encode_53_j10() {
+        // example given in J.10
+        let samples = vec![101, 103, 104, 105, 96, 97, 96, 102, 109];
+        let level_shift = (2.0_f64).powf(7.0); // Ssiz = 7
+        let signal: Vec<f64> = samples.iter().map(|v| (*v as f64) - level_shift).collect();
+
+        let processor = DwtProcessor::new(FilterType::Reversible53);
+
+        let original = Array2D::from_data(signal, 1, 9);
+
+        let subbands = processor.subband_decompose_2d(&original);
+        let reconstructed = processor.subband_reconstruct_2d(&subbands);
+
+        assert!(arrays_approx_eq(&original, &reconstructed, EPSILON));
+        let recon_samples: Vec<i32> = reconstructed
+            .data
+            .iter()
+            .map(|v| (v + level_shift) as i32)
+            .collect();
+        assert_eq!(samples, recon_samples, "Reconstruction after level shift");
     }
 
     #[test]

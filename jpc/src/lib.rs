@@ -2213,6 +2213,7 @@ impl Header {
     pub fn image_and_tile_size_marker_segment(&self) -> &ImageAndTileSizeMarkerSegment {
         &self.image_and_tile_size_marker_segment
     }
+    /// (COD)
     pub fn coding_style_marker_segment(&self) -> &CodingStyleMarkerSegment {
         self.coding_style_marker_segment.as_ref().unwrap()
     }
@@ -2950,14 +2951,42 @@ impl TilePartialDecode {
                 ..Default::default()
             }
         });
+        assert!(_partial_packet_thingy.not_done());
+        //_partial_packet_thingy.decode(buf);
+
         //.expect("Where PP go? TODO bad error message");
-        todo!("Unable to process tile-part");
+        //todo!("Unable to process tile-part");
+    }
+}
+
+/// Some sort of indication of where in the progression order
+#[derive(Debug, Default)]
+struct PO {
+    //layer
+    //component
+    //res-level
+    //precinct
+}
+struct ProgressionOrderIter {}
+
+impl Iterator for ProgressionOrderIter {
+    type Item = PO;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
     }
 }
 
 /// partially decoded packet
 #[derive(Debug, Default)]
 struct PP {}
+
+impl PP {
+    fn not_done(&self) -> bool {
+        // TODO impl something better
+        true
+    }
+}
 
 type DecoderResult = Result<ContiguousCodestream, JP2DecoderError>;
 
@@ -3243,7 +3272,7 @@ fn decode_packet<R: io::Read + io::Seek>(
 
     println!("count read {}", count_read);
     let coded_bytes = bit_reader.take(count_read);
-    println!("Reading {} bytes from reader", coded_bytes);
+    println!("Need to read {} bytes from reader", coded_bytes);
 
     let mut buf = vec![0; coded_bytes as usize];
     reader.read_exact(&mut buf)?;
@@ -3317,6 +3346,26 @@ mod tests {
     }
 
     #[test]
+    fn test_packet_decode_consume_8b16x16() {
+        // From 8b16x16
+        let ba =
+            b"\xdf\x82\x08\x14\xbd\x9e\x08\x18\x20\xcd\x8f\x4a\x65\x75\xc6\x77\xb9\xe1\x59\xf6";
+        // might need more data
+
+        let mut ctx = PacketContext {
+            inclusion: TagTreeDecoder::new(1, 1),
+            zero_bits: TagTreeDecoder::new(1, 1),
+            pass_counts: TagTreeDecoder::new(1, 1),
+            lengths: TagTreeDecoder::new(1, 1),
+        };
+        let mut reader = Cursor::new(ba);
+
+        let r = decode_packet(&mut ctx, &mut reader);
+        assert!(r.is_ok());
+        assert_eq!(reader.position(), 7, "expected to consume 7 bytes");
+    }
+
+    #[test]
     fn test_decode_zl_packet() {
         let ba = b"\x00";
         let mut reader = Cursor::new(ba);
@@ -3360,7 +3409,7 @@ mod tests {
 
     #[test]
     #[ignore = "TODO, need proper decoding and more data passed in"]
-    fn test_packet_decode_consume_03() {
+    fn test_packet_decode_consume_c0p0() {
         // test case c0p0
         let ba = b"\xdf\x85\xa8\x94\x36\x0f\x77\x22\xea\xf1";
 
