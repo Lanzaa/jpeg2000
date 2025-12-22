@@ -10,6 +10,7 @@ use std::ops::Index;
 use std::ops::IndexMut;
 use std::str;
 
+mod code_block;
 mod coder;
 mod dwt;
 mod tag_tree;
