@@ -69,30 +69,15 @@ impl CodeBlockDecoder {
         info!("need to decode codeblcok...");
 
         // Start in CleanUp -> SignificancePropagation -> MagnitudeRefinement -> repeat ...
-        // Each pass has two coding parts
-        let mut state = State::CleanUp;
-        let no_passes = 7; // TODO
-        for _pass_number in 0..no_passes {
-            info!("Beginning a pass {:?}", state);
-            let next_state: State = match state {
-                State::CleanUp => {
-                    self.pass_cleanup(coder);
-                    State::SignificancePropagation
-                }
-                State::SignificancePropagation => {
-                    self.bit_plane_shift -= 1;
-                    self.pass_significance(coder);
-                    State::MagnitudeRefinement
-                }
-                State::MagnitudeRefinement => {
-                    self.pass_refinement(coder);
-                    State::CleanUp
-                }
-            };
-            state = next_state;
+        self.pass_cleanup(coder);
+        for _ in (1..self.no_passes).step_by(3) {
+            info!("Beginning a pass set");
+            self.bit_plane_shift -= 1;
+            self.pass_significance(coder);
+            self.pass_refinement(coder);
+            self.pass_cleanup(coder);
             debug!("coeffs: {:?}", self.coefficients);
         }
-
         Ok(())
     }
     /// Return coefficients
@@ -555,7 +540,6 @@ mod tests {
 
     /// Test decoding the codeblock from J.10 for LL using a mock mqcoder
     #[test]
-    #[ignore]
     fn test_cb_decode_j10a_mocked() {
         init_logger();
 
