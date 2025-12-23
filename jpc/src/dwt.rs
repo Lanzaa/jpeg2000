@@ -34,19 +34,6 @@ pub enum FilterType {
     Irreversible97,
 }
 
-/// Sub-band types in the wavelet decomposition
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SubBandType {
-    /// Low-pass horizontal, Low-pass vertical
-    LL,
-    /// High-pass horizontal, Low-pass vertical
-    HL,
-    /// Low-pass horizontal, High-pass vertical
-    LH,
-    /// High-pass horizontal, High-pass vertical
-    HH,
-}
-
 /// A 2D coefficient array for wavelet operations
 #[derive(Debug, Clone)]
 pub struct Array2D<T> {
@@ -728,6 +715,7 @@ pub fn dwt_97_inverse(subbands: &[SubBands], n_levels: usize) -> Array2D<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::SubBandType;
 
     const EPSILON: f64 = 1e-10;
     const EPSILON_97: f64 = 1e-6;

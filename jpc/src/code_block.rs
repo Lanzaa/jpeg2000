@@ -573,6 +573,29 @@ mod tests {
         assert_eq!(coeffs, exp_coeffs, "Coefficients didn't match");
     }
 
+    #[test]
+    fn test_cb_decode_j10a() {
+        init_logger();
+        // Test decoding the codeblock from J.10 for LL
+        let bd = b"\x01\x8F\x0D\xC8\x75\x5D";
+        let mut coder = standard_decoder(bd);
+
+        // There are 16 coding passes in this example
+        let mut codeblock = CodeBlockDecoder::new(1, 5, SubBandType::LL, 16, 9);
+        codeblock.num_zero_bit_plane(3);
+        // 9 - 3 = 6 bits to set
+        // 6-1 = 5 => 1+5*3 = 16 coding passes
+
+        assert!(
+            codeblock.decode(&mut coder).is_ok(),
+            "Expected decode to work"
+        );
+
+        let coeffs = codeblock.coefficients();
+        let exp_coeffs = vec![-26, -22, -30, -32, -19];
+        assert_eq!(coeffs, exp_coeffs, "Coefficients didn't match");
+    }
+
     /// Test decoding the codeblock from J.10 for LH using a mock mqcoder
     #[test]
     fn test_cb_decode_j10b_mocked() {
