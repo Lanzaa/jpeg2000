@@ -1,17 +1,7 @@
-use std::option::{Iter, IterMut};
-
 use log::{debug, info};
 
 use crate::coder::{Decoder, RUN_LEN, UNIFORM};
-
-// Subband enum, TODO move somewhere sane
-#[derive(Debug)]
-enum SubBand {
-    LL,
-    HL,
-    LH,
-    HH,
-}
+use crate::shared::SubBandType;
 
 #[derive(Debug)]
 enum Coeff {
@@ -25,11 +15,10 @@ struct CodeBlockDecodeError {}
 /// decoder for codeblocks
 ///
 /// A CodeBlockDecoder produces coefficients from compressed data.
-///
 struct CodeBlockDecoder {
-    width: CODEBLOCKDIM,
-    height: CODEBLOCKDIM,
-    subband: SubBand,
+    width: i32,
+    height: i32,
+    subband: SubBandType,
     no_passes: u8, // Max 164 from table B.4
     bit_plane_shift: u8,
     coefficients: Vec<Coeff>,
@@ -42,15 +31,8 @@ struct CoeffIndex {
     x: i32,
 }
 
-type CODEBLOCKDIM = i32; // TODO what is actual codeblock sizing?
 impl CodeBlockDecoder {
-    fn new(
-        width: CODEBLOCKDIM,
-        height: CODEBLOCKDIM,
-        subband: SubBand,
-        no_passes: u8,
-        mb: u8,
-    ) -> Self {
+    fn new(width: i32, height: i32, subband: SubBandType, no_passes: u8, mb: u8) -> Self {
         let no_coeff: usize = (width * height) as usize;
         let mut coeffs_vec = Vec::with_capacity(no_coeff);
         coeffs_vec.resize_with(no_coeff, || Coeff::Insignificant(u8::MAX));
@@ -66,7 +48,7 @@ impl CodeBlockDecoder {
 
     /// Decode coefficients from the given compressed data.
     fn decode(&mut self, coder: &mut dyn Decoder) -> Result<(), CodeBlockDecodeError> {
-        info!("need to decode codeblcok...");
+        info!("Decoding code block for subband {:?}", self.subband);
 
         // Start in CleanUp -> SignificancePropagation -> MagnitudeRefinement -> repeat ...
         self.pass_cleanup(coder);
@@ -189,6 +171,7 @@ impl CodeBlockDecoder {
         }
         debug!("completed significance pass");
     }
+
     /// Handle a magnitude refinement pass
     fn pass_refinement(&mut self, coder: &mut dyn Decoder) {
         // Iterate coefficients in strips 4 tall across full width
@@ -229,46 +212,23 @@ impl CodeBlockDecoder {
     }
 
     fn significance_context(&self, idx: CoeffIndex) -> usize {
-        // Shorter names
-        let x = idx.x;
-        let y = idx.y;
-        let width = self.width;
-        let height = self.height;
-
+        let CoeffIndex { x, y } = idx;
         // mutables
         let mut h = 0; // horizontal contributions
         let mut v = 0; // vertical contributions
         let mut d = 0; // diagonal contributions
 
         // Count significant neighbors
-        // TODO get rid of bounds checks
-        if x > 0 && self.is_significant(CoeffIndex { y, x: x - 1 }) {
-            h += 1;
-        }
-        if x < width - 1 && self.is_significant(CoeffIndex { y, x: x + 1 }) {
-            h += 1;
-        }
-        if y > 0 && self.is_significant(CoeffIndex { y: y - 1, x }) {
-            v += 1;
-        }
-        if y < height - 1 && self.is_significant(CoeffIndex { y: y + 1, x }) {
-            v += 1;
-        }
+        h += self.is_significant(CoeffIndex { y, x: x - 1 }) as u8;
+        h += self.is_significant(CoeffIndex { y, x: x + 1 }) as u8;
+        v += self.is_significant(CoeffIndex { y: y - 1, x }) as u8;
+        v += self.is_significant(CoeffIndex { y: y + 1, x }) as u8;
 
         // Diagonals (only if both adjacent orthogonal are insignificant)
-        if x > 0 && y > 0 && self.is_significant(CoeffIndex { y: y - 1, x: x - 1 }) {
-            d += 1;
-        }
-        if x < width - 1 && y > 0 && self.is_significant(CoeffIndex { y: y - 1, x: x + 1 }) {
-            d += 1;
-        }
-        if x > 0 && y < height - 1 && self.is_significant(CoeffIndex { y: y + 1, x: x - 1 }) {
-            d += 1;
-        }
-        if x < width - 1 && y < height - 1 && self.is_significant(CoeffIndex { y: y + 1, x: x + 1 })
-        {
-            d += 1;
-        }
+        d += self.is_significant(CoeffIndex { y: y - 1, x: x - 1 }) as u8;
+        d += self.is_significant(CoeffIndex { y: y - 1, x: x + 1 }) as u8;
+        d += self.is_significant(CoeffIndex { y: y + 1, x: x - 1 }) as u8;
+        d += self.is_significant(CoeffIndex { y: y + 1, x: x + 1 }) as u8;
 
         debug!(
             "For subband {:?}, idx: {:?}, found h={}, v={}, d={}",
@@ -278,7 +238,7 @@ impl CodeBlockDecoder {
         // Compute context based on subband and neighbor counts
         // Different formulas for HL, LH, HH subbands
         match self.subband {
-            SubBand::LL | SubBand::LH => match (h, v, d) {
+            SubBandType::LL | SubBandType::LH => match (h, v, d) {
                 (0, 0, 0) => 0,
                 (0, 0, 1) => 1,
                 (0, 0, _) => 2,
@@ -290,7 +250,7 @@ impl CodeBlockDecoder {
                 (2, _, _) => 8,
                 (_, _, _) => panic!("Unknown significance context calculation"),
             },
-            SubBand::HL => match (h, v, d) {
+            SubBandType::HL => match (h, v, d) {
                 (0, 0, 0) => 0,
                 (0, 0, 1) => 1,
                 (0, 0, _) => 2,
@@ -302,7 +262,18 @@ impl CodeBlockDecoder {
                 (_, 2, _) => 8,
                 (_, _, _) => panic!("Unknown significance context calculation"),
             },
-            SubBand::HH => todo!("HH significance context loookup"),
+            SubBandType::HH => match (h + v, d) {
+                (0, 0) => 0,
+                (1, 0) => 1,
+                (a, 0) if a >= 2 => 2,
+                (0, 1) => 3,
+                (1, 1) => 4,
+                (a, 1) if a >= 2 => 5,
+                (0, 2) => 6,
+                (a, 2) if a >= 1 => 7,
+                (_, b) if b >= 3 => 8,
+                (_, _) => panic!("Unknown significance context calculation"),
+            },
         }
     }
 
@@ -375,10 +346,8 @@ impl CodeBlockDecoder {
 
     /// Decode the magnitude bit for a specific CoeffIndex from the decoder
     fn magnitude_decode(&mut self, idx: CoeffIndex, decoder: &mut dyn Decoder) {
-        // TODO pull context from around idx
         let cx = self.magnitude_context(idx);
         let b = decoder.decode_bit(cx);
-        info!("Coef b {:?}", self.coeff_at(idx));
         *self.coeff_at_mut(idx) = match self.coeff_at(idx) {
             Coeff::Insignificant(_) => {
                 panic!("Cannot set magnitude bit for an Insignificant coefficient")
@@ -389,18 +358,13 @@ impl CodeBlockDecoder {
                 Coeff::Significant { value, is_negative }
             }
         };
-        info!("Coef after {:?}", self.coeff_at(idx));
         debug!("Set bit {} for {:?}", b, idx);
     }
 
     /// Decode the sign bit for a specific CoeffIndex from the decoder
     fn decode_sign_bit(&mut self, idx: CoeffIndex, decoder: &mut dyn Decoder) {
-        // TODO pull context from around idx
         let (cx, xor) = self.sign_context(idx);
-        // TODO
-        debug!("Decodign sign bit with ctx {} and xor {}", cx, xor);
         let sign_bit = decoder.decode_bit(cx);
-        debug!("sign {} for {:?}", sign_bit, idx);
         if let Coeff::Significant { value, .. } = self.coeff_at(idx) {
             *self.coeff_at_mut(idx) = Coeff::Significant {
                 value: *value,
@@ -588,7 +552,7 @@ mod tests {
             index: 0,
         };
         // There are 16 coding passes in this example
-        let mut codeblock = CodeBlockDecoder::new(1, 5, SubBand::LL, 16, 9);
+        let mut codeblock = CodeBlockDecoder::new(1, 5, SubBandType::LL, 16, 9);
         // codeblock.mb(9);
         codeblock.num_zero_bit_plane(3);
         // 9 - 3 = 6 bits to set
@@ -637,7 +601,7 @@ mod tests {
             index: 0,
         };
         // There are 7 coding passes in this example
-        let mut codeblock = CodeBlockDecoder::new(1, 4, SubBand::LH, 7, 10);
+        let mut codeblock = CodeBlockDecoder::new(1, 4, SubBandType::LH, 7, 10);
         // codeblock.mb(10);
         codeblock.num_zero_bit_plane(7);
         // 10 - 7 = 3 bits to set

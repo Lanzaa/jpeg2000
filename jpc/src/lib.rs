@@ -13,6 +13,7 @@ use std::str;
 mod code_block;
 mod coder;
 mod dwt;
+mod shared;
 mod tag_tree;
 
 #[derive(Debug)]
