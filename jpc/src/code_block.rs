@@ -102,7 +102,7 @@ impl CodeBlockDecoder {
                     // All Insignificant, determine first significant
                     let c4 = coder.decode_bit(RUN_LEN);
                     // c4 -> d11
-                    if c4 == 1 {
+                    if c4 != 1 {
                         // skip all, go to next column of 4
                         debug!("Skipping column of 4");
                         continue;
@@ -510,7 +510,7 @@ mod tests {
         // Mock decoder that checks input contexts
         let mut coder = MockCoder {
             exp: vec![
-                (17, 0),
+                (17, 1),
                 (18, 1),
                 (18, 1),
                 (9, 1),
@@ -581,7 +581,7 @@ mod tests {
         // Mock decoder that checks input contexts
         let mut coder = MockCoder {
             exp: vec![
-                (17, 0),
+                (17, 1),
                 (18, 0),
                 (18, 1),
                 (9, 0),
