@@ -53,12 +53,12 @@ impl CodeBlockDecoder {
         // Start in CleanUp -> SignificancePropagation -> MagnitudeRefinement -> repeat ...
         self.pass_cleanup(coder);
         for _ in (1..self.no_passes).step_by(3) {
-            info!("Beginning a pass set");
+            debug!("Beginning a pass set");
             self.bit_plane_shift -= 1;
             self.pass_significance(coder);
             self.pass_refinement(coder);
             self.pass_cleanup(coder);
-            debug!("coeffs: {:?}", self.coefficients);
+            debug!("coefficients: {:?}", self.coefficients);
         }
         Ok(())
     }
@@ -101,7 +101,6 @@ impl CodeBlockDecoder {
                 if d8 {
                     // All Insignificant, determine first significant
                     let c4 = coder.decode_bit(RUN_LEN);
-                    debug!("D8=true, C4 {}", c4);
                     // c4 -> d11
                     if c4 == 1 {
                         // skip all, go to next column of 4
@@ -133,7 +132,6 @@ impl CodeBlockDecoder {
                 // remaining coefficients in this column strip
                 for y in (by + offset_y)..(by + 4).min(self.height) {
                     let idx = CoeffIndex { x, y };
-                    debug!("Wakka {:?} -> {:?}", idx, self.coeff_at(idx));
                     let newly_sig =
                         !self.is_significant(idx) && self.significance_decode(idx, coder);
                     if newly_sig {
@@ -169,7 +167,7 @@ impl CodeBlockDecoder {
                 }
             }
         }
-        debug!("completed significance pass");
+        info!("completed significance pass");
     }
 
     /// Handle a magnitude refinement pass
@@ -184,7 +182,7 @@ impl CodeBlockDecoder {
                     }
                     // is bit set for this bit-plane
                     let is_bit_set = self.is_bit_plane_set(idx);
-                    info!("Is bit set: {}, for {:?}", is_bit_set, idx);
+                    debug!("Is bit set: {}, for {:?}", is_bit_set, idx);
                     if is_bit_set {
                         continue; // D6 yes
                     }
@@ -193,21 +191,24 @@ impl CodeBlockDecoder {
                 }
             }
         }
-        debug!("completed refinement pass");
+        info!("completed refinement pass");
     }
 
     fn coeff_at(&self, idx: CoeffIndex) -> &Coeff {
         let CoeffIndex { x, y } = idx;
         let out_bounds = x < 0 || x >= self.width || y < 0 || y >= self.height;
-        match out_bounds {
-            true => {
-                debug!("Out of bounds coeff_at {}, {}", x, y);
-                &Coeff::Insignificant(u8::MAX)
-            }
-            false => &self.coefficients[(self.width * idx.y + idx.x) as usize],
+        if out_bounds {
+            debug!("Out of bounds coeff_at {}, {}", x, y);
+            &Coeff::Insignificant(u8::MAX)
+        } else {
+            &self.coefficients[(self.width * idx.y + idx.x) as usize]
         }
     }
+
     fn coeff_at_mut(&mut self, idx: CoeffIndex) -> &mut Coeff {
+        let CoeffIndex { x, y } = idx;
+        let out_bounds = x < 0 || x >= self.width || y < 0 || y >= self.height;
+        assert!(!out_bounds, "Should not be trying to mutate out of bounds");
         &mut self.coefficients[(self.width * idx.y + idx.x) as usize]
     }
 
@@ -279,7 +280,6 @@ impl CodeBlockDecoder {
 
     /// Checks if the bit in this bit-plane was set
     fn is_bit_plane_set(&self, idx: CoeffIndex) -> bool {
-        debug!("value for {:?}, {:?}", idx, self.coeff_at(idx));
         match self.coeff_at(idx) {
             Coeff::Insignificant(_) => {
                 panic!("Attemping to check bit-plane of Insignificant coefficient")
@@ -300,6 +300,7 @@ impl CodeBlockDecoder {
         }
     }
 
+    /// Turn a coefficient significant
     fn make_significant(&mut self, idx: CoeffIndex) {
         debug!("Marking significant {:?}", idx);
         match self.coeff_at(idx) {
@@ -315,19 +316,18 @@ impl CodeBlockDecoder {
 
     /// Decode the significance for a specific CoeffIndex from the decoder
     fn significance_decode(&mut self, idx: CoeffIndex, decoder: &mut dyn Decoder) -> bool {
-        // TODO pull context from around idx
-        match self.coeff_at(idx) {
-            Coeff::Insignificant(bs) => {
-                // significance already coded as false
-                if *bs == self.bit_plane_shift {
-                    return false;
-                }
+        if let Coeff::Insignificant(bs) = self.coeff_at(idx) {
+            if *bs == self.bit_plane_shift {
+                return false;
             }
-            _ => panic!("Should have checked if sig"),
+        } else {
+            panic!("Should have checked if sig");
         }
         let cx = self.significance_context(idx);
         self.significance_decode_ctx(cx, idx, decoder)
     }
+
+    /// Decode the significance with a known context
     fn significance_decode_ctx(
         &mut self,
         cx: usize,
@@ -335,7 +335,7 @@ impl CodeBlockDecoder {
         decoder: &mut dyn Decoder,
     ) -> bool {
         let sig = decoder.decode_bit(cx);
-        debug!("Sigbit {} for {:?}", sig, idx);
+        debug!("significance {} for {:?}", sig, idx);
         if sig == 1 {
             self.make_significant(idx);
             true
@@ -477,7 +477,7 @@ enum State {
 
 #[cfg(test)]
 mod tests {
-    use crate::coder::Decoder;
+    use crate::coder::{standard_decoder, Decoder};
 
     use super::*;
 
@@ -621,24 +621,6 @@ mod tests {
         let exp_coeffs = vec![1, 5, 1, 0];
         assert_eq!(coeffs, exp_coeffs, "Coefficients didn't match");
     }
-
-    //#[test]
-    //fn test_cb_decode_j10a() {
-    //    init_logger();
-    //    todo!("...");
-    //    // Test decoding the codeblock from J.10 for LL
-    //    let bd = b"\x01\x8F\x0D\xC8\x75\x5D";
-
-    //    // There are 16 coding passes in this example
-    //    let mut codeblock = CodeBlockDecoder::new(1, 5, SubBand::LL);
-
-    //    assert!(codeblock.decode(bd).is_ok(), "Expected decode to work");
-
-    //    let coeffs = codeblock.coefficients();
-
-    //    let exp_coeffs = vec![1, 5, 1, 0];
-    //    assert_eq!(coeffs, exp_coeffs, "Coefficients didn't match");
-    //}
 
     //#[test]
     //fn test_cb_decode_j10b() {
