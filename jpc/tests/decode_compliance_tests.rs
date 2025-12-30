@@ -34,9 +34,8 @@ fn test_8b16g_n2() -> Result<(), String> {
     let pgx: PgxImage = load_pgx(p.as_path())?;
     assert_eq!(16 * 16, pgx.samples.length()); // basic file load test
     assert_eq!(8, pgx.bit_depth);
-    let pgx_data = match pgx.samples {
-        shared::PixelData::U8(data) => data,
-        _ => panic!("Unexpected type in test"),
+    let shared::PixelData::U8(pgx_data) = pgx.samples else {
+        panic!("Unexpected type in test");
     };
 
     let j2k = test_file("8b16x16_n2.j2k")?;
@@ -104,9 +103,8 @@ fn test_c0p0() -> Result<(), String> {
     let pgx: PgxImage = load_pgx(p.as_path())?;
     assert_eq!(128 * 128, pgx.samples.length()); // basic file load test
     assert_eq!(8, pgx.bit_depth);
-    let pgx_data = match pgx.samples {
-        shared::PixelData::U8(data) => data,
-        _ => panic!("Unexpected type in test"),
+    let shared::PixelData::U8(pgx_data) = pgx.samples else {
+        panic!("Unexpected type in test");
     };
 
     let j2k = test_file("p0_01.j2k")?;
