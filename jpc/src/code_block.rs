@@ -1,6 +1,6 @@
 use log::{debug, info};
 
-use crate::coder::{Decoder, RUN_LEN, UNIFORM};
+use crate::coder::{standard_decoder, Decoder, RUN_LEN, UNIFORM};
 use crate::shared::SubBandType;
 
 #[derive(Debug)]
@@ -10,18 +10,22 @@ enum Coeff {
     Insignificant(u8), // Insignificant at what bit-plane shift
 }
 
-struct CodeBlockDecodeError {}
+#[derive(Debug)]
+pub struct CodeBlockDecodeError {}
 
 /// decoder for codeblocks
 ///
 /// A CodeBlockDecoder produces coefficients from compressed data.
-struct CodeBlockDecoder {
+#[derive(Debug)]
+pub struct CodeBlockDecoder {
     width: i32,
     height: i32,
     subband: SubBandType,
-    no_passes: u8, // Max 164 from table B.4
     bit_plane_shift: u8,
     coefficients: Vec<Coeff>,
+    lblock: u8,
+    no_passes: u8,
+    no_bytes: usize,
 }
 
 /// Wrapper around an x, y coord
@@ -32,7 +36,7 @@ struct CoeffIndex {
 }
 
 impl CodeBlockDecoder {
-    fn new(width: i32, height: i32, subband: SubBandType, no_passes: u8, mb: u8) -> Self {
+    pub fn new(width: i32, height: i32, subband: SubBandType, mb: u8) -> Self {
         let no_coeff: usize = (width * height) as usize;
         let mut coeffs_vec = Vec::with_capacity(no_coeff);
         coeffs_vec.resize_with(no_coeff, || Coeff::Insignificant(u8::MAX));
@@ -40,15 +44,33 @@ impl CodeBlockDecoder {
             width,
             height,
             subband,
-            no_passes,
             bit_plane_shift: mb - 1,
             coefficients: coeffs_vec,
+            lblock: 3,    // see B.10.7.1
+            no_passes: 0, // not yet primed
+            no_bytes: 0,
         }
     }
 
+    pub fn increment_lblock(&mut self) -> u8 {
+        self.lblock += 1;
+        self.lblock
+    }
+
+    pub fn no_bytes(&self) -> usize {
+        self.no_bytes
+    }
+
     /// Decode coefficients from the given compressed data.
-    fn decode(&mut self, coder: &mut dyn Decoder) -> Result<(), CodeBlockDecodeError> {
-        info!("Decoding code block for subband {:?}", self.subband);
+    pub fn decode(&mut self, coder: &mut impl Decoder) -> Result<(), CodeBlockDecodeError> {
+        info!(
+            "Decoding code block for subband {:?}, no_passes: {}",
+            self.subband, self.no_passes
+        );
+        assert!(
+            self.no_passes > 0,
+            "Expected to be primed with the number of passes to expect"
+        );
 
         // Start in CleanUp -> SignificancePropagation -> MagnitudeRefinement -> repeat ...
         self.pass_cleanup(coder);
@@ -60,13 +82,14 @@ impl CodeBlockDecoder {
             self.pass_cleanup(coder);
             debug!("coefficients: {:?}", self.coefficients);
         }
+        self.no_passes = 0;
         Ok(())
     }
     /// Return coefficients
     /// TODO return type is whak
     /// Note, return a copy, maybe need to decode more for this codeblock later and don't want to
     /// lose state
-    fn coefficients(&self) -> Vec<i32> {
+    pub fn coefficients(&self) -> Vec<i32> {
         self.coefficients
             .iter()
             .map(|c| match c {
@@ -85,7 +108,7 @@ impl CodeBlockDecoder {
     /// Handle a cleanup pass
     ///
     /// CleanUp does cleanup and sign coding
-    fn pass_cleanup(&mut self, coder: &mut dyn Decoder) {
+    fn pass_cleanup(&mut self, coder: &mut impl Decoder) {
         // Iterate coefficients in strips 4 tall across full width
         for by in (0..self.height).step_by(4) {
             for x in 0..self.width {
@@ -144,7 +167,7 @@ impl CodeBlockDecoder {
         info!("completed cleanup pass");
     }
     /// Handle a significance propagation pass
-    fn pass_significance(&mut self, coder: &mut dyn Decoder) {
+    fn pass_significance(&mut self, coder: &mut impl Decoder) {
         // Iterate coefficients in strips 4 tall across full width
         for by in (0..self.height).step_by(4) {
             for x in 0..self.width {
@@ -171,7 +194,7 @@ impl CodeBlockDecoder {
     }
 
     /// Handle a magnitude refinement pass
-    fn pass_refinement(&mut self, coder: &mut dyn Decoder) {
+    fn pass_refinement(&mut self, coder: &mut impl Decoder) {
         // Iterate coefficients in strips 4 tall across full width
         for by in (0..self.height).step_by(4) {
             for x in 0..self.width {
@@ -315,7 +338,7 @@ impl CodeBlockDecoder {
     }
 
     /// Decode the significance for a specific CoeffIndex from the decoder
-    fn significance_decode(&mut self, idx: CoeffIndex, decoder: &mut dyn Decoder) -> bool {
+    fn significance_decode(&mut self, idx: CoeffIndex, decoder: &mut impl Decoder) -> bool {
         if let Coeff::Insignificant(bs) = self.coeff_at(idx) {
             if *bs == self.bit_plane_shift {
                 return false;
@@ -332,7 +355,7 @@ impl CodeBlockDecoder {
         &mut self,
         cx: usize,
         idx: CoeffIndex,
-        decoder: &mut dyn Decoder,
+        decoder: &mut impl Decoder,
     ) -> bool {
         let sig = decoder.decode_bit(cx);
         debug!("significance {} for {:?}", sig, idx);
@@ -345,7 +368,7 @@ impl CodeBlockDecoder {
     }
 
     /// Decode the magnitude bit for a specific CoeffIndex from the decoder
-    fn magnitude_decode(&mut self, idx: CoeffIndex, decoder: &mut dyn Decoder) {
+    fn magnitude_decode(&mut self, idx: CoeffIndex, decoder: &mut impl Decoder) {
         let cx = self.magnitude_context(idx);
         let b = decoder.decode_bit(cx);
         *self.coeff_at_mut(idx) = match self.coeff_at(idx) {
@@ -362,7 +385,7 @@ impl CodeBlockDecoder {
     }
 
     /// Decode the sign bit for a specific CoeffIndex from the decoder
-    fn decode_sign_bit(&mut self, idx: CoeffIndex, decoder: &mut dyn Decoder) {
+    fn decode_sign_bit(&mut self, idx: CoeffIndex, decoder: &mut impl Decoder) {
         let (cx, xor) = self.sign_context(idx);
         let sign_bit = decoder.decode_bit(cx);
         if let Coeff::Significant { value, .. } = self.coeff_at(idx) {
@@ -375,7 +398,8 @@ impl CodeBlockDecoder {
         }
     }
 
-    fn num_zero_bit_plane(&mut self, arg: u8) {
+    pub fn num_zero_bit_plane(&mut self, arg: u8) {
+        info!("self.bit_plane_shift {} -= {}", self.bit_plane_shift, arg);
         self.bit_plane_shift -= arg;
     }
 
@@ -456,6 +480,16 @@ impl CodeBlockDecoder {
         } else {
             14
         }
+    }
+
+    pub fn lblock(&self) -> u8 {
+        self.lblock
+    }
+
+    /// Prime the decoder with information on how many bytes and coding passes to expect
+    fn prime(&mut self, coding_pass_count: u8, coded_bytes: u8) {
+        self.no_passes = coding_pass_count;
+        self.no_bytes = coded_bytes as usize;
     }
 }
 
@@ -552,11 +586,12 @@ mod tests {
             index: 0,
         };
         // There are 16 coding passes in this example
-        let mut codeblock = CodeBlockDecoder::new(1, 5, SubBandType::LL, 16, 9);
+        let mut codeblock = CodeBlockDecoder::new(1, 5, SubBandType::LL, 9);
         // codeblock.mb(9);
         codeblock.num_zero_bit_plane(3);
         // 9 - 3 = 6 bits to set
         // 6-1 = 5 => 1+5*3 = 16 coding passes
+        codeblock.prime(16, 6);
 
         assert!(
             codeblock.decode(&mut coder).is_ok(),
@@ -581,10 +616,11 @@ mod tests {
         let mut coder = standard_decoder(bd);
 
         // There are 16 coding passes in this example
-        let mut codeblock = CodeBlockDecoder::new(1, 5, SubBandType::LL, 16, 9);
+        let mut codeblock = CodeBlockDecoder::new(1, 5, SubBandType::LL, 9);
         codeblock.num_zero_bit_plane(3);
         // 9 - 3 = 6 bits to set
         // 6-1 = 5 => 1+5*3 = 16 coding passes
+        codeblock.prime(16, 6);
 
         assert!(
             codeblock.decode(&mut coder).is_ok(),
@@ -624,11 +660,12 @@ mod tests {
             index: 0,
         };
         // There are 7 coding passes in this example
-        let mut codeblock = CodeBlockDecoder::new(1, 4, SubBandType::LH, 7, 10);
+        let mut codeblock = CodeBlockDecoder::new(1, 4, SubBandType::LH, 10);
         // codeblock.mb(10);
         codeblock.num_zero_bit_plane(7);
         // 10 - 7 = 3 bits to set
         // 3 bits to set => 7 (=1cleanup+2bitplanes*3) coding passes
+        codeblock.prime(7, 3);
 
         assert!(
             codeblock.decode(&mut coder).is_ok(),
