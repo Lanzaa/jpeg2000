@@ -5,7 +5,6 @@ use std::cmp;
 use std::error;
 use std::fmt;
 use std::io;
-use std::io::prelude::*;
 use std::str;
 
 mod coder;
@@ -2133,7 +2132,7 @@ impl ContiguousCodestream {
                 tile_part_length.tile_length = u16::from_be_bytes(buf) as u32;
             } else if parameter_sizes.contains(&TilePartParameterSize::Ptlm32Bit) {
                 let mut buf = [0u8; 4];
-                reader.take(4).read_exact(&mut buf)?;
+                reader.read_exact(&mut buf)?;
                 tile_part_length.tile_length = u32::from_be_bytes(buf);
             }
             segment.tile_part_lengths.push(tile_part_length);
