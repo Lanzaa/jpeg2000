@@ -3215,11 +3215,20 @@ type CodingPassTagTree = TagTreeDecoder;
 type LengthTagTree = TagTreeDecoder;
 
 // PacketContext records the tag trees used for context when decoding packets.
-struct PacketContext {
+#[derive(Debug)]
+struct SubBandPacketContext {
     pub inclusion: InclusionTagTree,
     pub zero_bits: ZeroBitsTagTree,
-    pub pass_counts: CodingPassTagTree,
-    pub lengths: LengthTagTree,
+}
+
+impl SubBandPacketContext {
+    fn new(width: u8, height: u8) -> Self {
+        let (width, height) = (width as usize, height as usize);
+        Self {
+            inclusion: TagTreeDecoder::new(width, height),
+            zero_bits: TagTreeDecoder::new(width, height),
+        }
+    }
 }
 
 type ME = Box<dyn error::Error>;
@@ -3317,11 +3326,9 @@ mod tests {
     fn test_packet_decode_consume_01() {
         let ba = b"\xC7\xD4\x0C\x01\x8f\x0D\xC8\x75\x5D\x00\x00\x00";
 
-        let mut ctx = PacketContext {
+        let mut ctx = SubBandPacketContext {
             inclusion: TagTreeDecoder::new(1, 1),
             zero_bits: TagTreeDecoder::new(1, 1),
-            pass_counts: TagTreeDecoder::new(1, 1),
-            lengths: TagTreeDecoder::new(1, 1),
         };
         let mut reader = Cursor::new(ba);
 
@@ -3334,11 +3341,9 @@ mod tests {
     fn test_packet_decode_consume_02() {
         let ba = b"\xC0\x7C\x21\x80\x0F\xB1\x76";
 
-        let mut ctx = PacketContext {
+        let mut ctx = SubBandPacketContext {
             inclusion: TagTreeDecoder::new(1, 1),
             zero_bits: TagTreeDecoder::new(1, 1),
-            pass_counts: TagTreeDecoder::new(1, 1),
-            lengths: TagTreeDecoder::new(1, 1),
         };
         let mut reader = Cursor::new(ba);
 
@@ -3354,11 +3359,9 @@ mod tests {
             b"\xdf\x82\x08\x14\xbd\x9e\x08\x18\x20\xcd\x8f\x4a\x65\x75\xc6\x77\xb9\xe1\x59\xf6";
         // might need more data
 
-        let mut ctx = PacketContext {
+        let mut ctx = SubBandPacketContext {
             inclusion: TagTreeDecoder::new(1, 1),
             zero_bits: TagTreeDecoder::new(1, 1),
-            pass_counts: TagTreeDecoder::new(1, 1),
-            lengths: TagTreeDecoder::new(1, 1),
         };
         let mut reader = Cursor::new(ba);
 
@@ -3372,11 +3375,9 @@ mod tests {
         let ba = b"\x00";
         let mut reader = Cursor::new(ba);
 
-        let mut ctx = PacketContext {
+        let mut ctx = SubBandPacketContext {
             inclusion: TagTreeDecoder::new(1, 1),
             zero_bits: TagTreeDecoder::new(1, 1),
-            pass_counts: TagTreeDecoder::new(1, 1),
-            lengths: TagTreeDecoder::new(1, 1),
         };
         let r = decode_packet(&mut ctx, &mut reader);
         assert!(r.is_ok());
@@ -3415,11 +3416,9 @@ mod tests {
         // test case c0p0
         let ba = b"\xdf\x85\xa8\x94\x36\x0f\x77\x22\xea\xf1";
 
-        let mut ctx = PacketContext {
+        let mut ctx = SubBandPacketContext {
             inclusion: TagTreeDecoder::new(1, 1),
             zero_bits: TagTreeDecoder::new(1, 1),
-            pass_counts: TagTreeDecoder::new(1, 1),
-            lengths: TagTreeDecoder::new(1, 1),
         };
         let mut reader = Cursor::new(ba);
 
