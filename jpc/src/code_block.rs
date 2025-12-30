@@ -487,9 +487,11 @@ impl CodeBlockDecoder {
     }
 
     /// Prime the decoder with information on how many bytes and coding passes to expect
-    fn prime(&mut self, coding_pass_count: u8, coded_bytes: u8) {
+    pub(crate) fn prime(&mut self, coding_pass_count: u8, coded_bytes: u8) {
         self.no_passes = coding_pass_count;
         self.no_bytes = coded_bytes as usize;
+        // TODO record coded_bytes ?
+        //todo!("TODO prime code block decoder");
     }
 }
 

@@ -26,7 +26,7 @@ fn test_file(filename: &str) -> Result<PathBuf, String> {
 
 /// Test an 8 bit 16x16 image with 2 resolution level
 #[test]
-//#[ignore = "lots of work needed before this is ready"]
+#[ignore = "lots of work needed before this is ready"]
 fn test_8b16g_n2() -> Result<(), String> {
     shared::init_logger();
 

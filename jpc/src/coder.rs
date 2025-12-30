@@ -307,6 +307,7 @@ pub fn standard_decoder(bytes: &[u8]) -> MqDecoder {
     let mut decoder = MqDecoder::new(19);
     decoder.reset_contexts();
     decoder.init(bytes);
+    info!("POIX03 given {:x?}", bytes);
     decoder
 }
 

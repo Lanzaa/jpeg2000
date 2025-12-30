@@ -166,6 +166,34 @@ fn test_sop() {
 }
 
 #[test]
+fn test_qcc() {
+    shared::init_logger();
+    let filename = "p0_03.j2k";
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join(filename);
+    let file = File::open(path).expect("file should exist");
+    let mut reader = BufReader::new(file);
+    let result = decode_jpc(&mut reader);
+    assert!(result.is_ok());
+    let codestream = result.unwrap();
+    assert_eq!(codestream.length(), 0);
+    assert_eq!(codestream.offset(), 0);
+
+    let header = codestream.header();
+    println!("\nheader: {header:?}");
+
+    let siz = header.image_and_tile_size_marker_segment();
+    assert_eq!(siz.reference_grid_width(), 2);
+    assert_eq!(siz.reference_grid_height(), 1);
+    assert_eq!(siz.image_horizontal_offset(), 0);
+    assert_eq!(siz.image_vertical_offset(), 0);
+    assert_eq!(siz.offset(), 4);
+    assert_eq!(siz.length(), 47);
+    assert_eq!(siz.decoder_capabilities(), 0);
+}
+
+#[test]
 fn test_eph() {
     let filename = "eph.j2k";
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
