@@ -1,8 +1,8 @@
 use std::{fs::File, io::BufReader, path::Path};
 
 use jp2::{
-    decode_jp2, BitDepth, ChannelTypes, ColourSpecificationMethods, EnumeratedColourSpaces,
-    JBox as _, JP2File,
+    colour_specification::{ColourSpecificationMethods, EnumeratedColourSpaces},
+    decode_jp2, BitDepth, ChannelTypes, JBox as _, JP2File,
 };
 
 struct ExpectedConfiguration {

@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
 use core::fmt::Write;
+use jp2::colour_specification::ColourSpecificationBox;
 use jp2::{
     decode_jp2, BitsPerComponentBox, CaptureResolutionBox, ChannelDefinitionBox,
-    ColourSpecificationBox, ComponentMappingBox, ContiguousCodestreamBox,
-    DefaultDisplayResolutionBox, FileTypeBox, HeaderSuperBox, JBox, PaletteBox, ResolutionSuperBox,
-    SignatureBox, UUIDBox, XMLBox,
+    ComponentMappingBox, ContiguousCodestreamBox, DefaultDisplayResolutionBox, FileTypeBox,
+    HeaderSuperBox, JBox, PaletteBox, ResolutionSuperBox, SignatureBox, UUIDBox, XMLBox,
 };
 use jpc::{
     decode_jpc, CodingStyleMarkerSegment, CodingStyleParameters, ContiguousCodestream, Header,
@@ -290,7 +290,7 @@ fn encode_colour_specification_box<W: io::Write>(
         colour_specification_box.colourspace_approximation()
     )?;
     match colour_specification_box.method() {
-        jp2::ColourSpecificationMethods::EnumeratedColourSpace { code } => {
+        jp2::colour_specification::ColourSpecificationMethods::EnumeratedColourSpace { code } => {
             let methdat = code.encoded_methdat();
             writeln!(
                 writer,
