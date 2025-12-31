@@ -1704,7 +1704,7 @@ impl ContiguousCodestream {
         &mut self,
         reader: &mut R,
     ) -> Result<u16, Box<dyn error::Error>> {
-        let mut length: [u8; 2] = [0; 2];
+        let mut length = [0u8; 2];
         reader.read_exact(&mut length)?;
         Ok(u16::from_be_bytes(length))
     }
@@ -1739,15 +1739,15 @@ impl ContiguousCodestream {
 
         for _ in 0..no_components {
             // TODO: Consider putting into struct
-            let mut precision: [u8; 1] = [0; 1];
+            let mut precision = [0u8; 1];
             reader.read_exact(&mut precision)?;
             segment.precision.push(precision);
 
-            let mut horizontal_separation: [u8; 1] = [0; 1];
+            let mut horizontal_separation = [0u8; 1];
             reader.read_exact(&mut horizontal_separation)?;
             segment.horizontal_separation.push(horizontal_separation);
 
-            let mut vertical_separation: [u8; 1] = [0; 1];
+            let mut vertical_separation = [0u8; 1];
             reader.read_exact(&mut vertical_separation)?;
             segment.vertical_separation.push(vertical_separation);
         }
@@ -1804,7 +1804,7 @@ impl ContiguousCodestream {
         let mut segment = ExtendedCapabilitiesMarkerSegment::default();
 
         // Lcap
-        let mut marker_segment_length: [u8; 2] = [0; 2];
+        let mut marker_segment_length = [0u8; 2];
         reader.read_exact(&mut marker_segment_length)?;
         segment.length = u16::from_be_bytes(marker_segment_length);
         segment.capabilities = Vec::<Option<u16>>::with_capacity(32);
@@ -1850,7 +1850,7 @@ impl ContiguousCodestream {
         let mut segment = CorrespondingProfileMarkerSegment::default();
 
         // Lcpf
-        let mut marker_segment_length_bytes: [u8; 2] = [0; 2];
+        let mut marker_segment_length_bytes = [0u8; 2];
         reader.read_exact(&mut marker_segment_length_bytes)?;
         segment.length = u16::from_be_bytes(marker_segment_length_bytes);
 
@@ -1885,7 +1885,7 @@ impl ContiguousCodestream {
         let mut segment = StartOfTileSegment::default();
 
         // LSot
-        let mut marker_segment_length: [u8; 2] = [0; 2];
+        let mut marker_segment_length = [0u8; 2];
         reader.read_exact(&mut marker_segment_length)?;
 
         // ISot
@@ -1965,12 +1965,12 @@ impl ContiguousCodestream {
     ) -> Result<[u8; 2], Box<dyn error::Error>> {
         // Either 8 or 16 bits depending on Csiz value.
         if no_components < 257 {
-            let mut buffer: [u8; 1] = [0; 1];
+            let mut buffer = [0u8; 1];
             reader.read_exact(&mut buffer)?;
             Ok([0, buffer[0]])
         } else {
             // TODO: Understand why 2 MSB are unused (signness is only 1 bit)
-            let mut buffer: [u8; 2] = [0; 2];
+            let mut buffer = [0u8; 2];
             reader.read_exact(&mut buffer)?;
             Ok(buffer)
         }
@@ -2197,7 +2197,7 @@ impl ContiguousCodestream {
             match quantization_style {
                 // Reversible transformation values
                 QuantizationStyle::No { guard: _ } => {
-                    let mut value: [u8; 1] = [0; 1];
+                    let mut value = [0u8; 1];
                     reader.read_exact(&mut value)?;
 
                     let quantization_value = QuantizationValue::Reversible { value };
@@ -2206,7 +2206,7 @@ impl ContiguousCodestream {
                 // Irreversible transformation values
                 QuantizationStyle::ScalarExpounded { guard: _ }
                 | QuantizationStyle::ScalarDerived { guard: _ } => {
-                    let mut value: [u8; 2] = [0; 2];
+                    let mut value = [0u8; 2];
                     reader.read_exact(&mut value)?;
 
                     let quantization_value = QuantizationValue::Irreversible { value };
@@ -2321,7 +2321,7 @@ impl ContiguousCodestream {
         reader: &mut R,
         vec: &mut Vec<u8>,
     ) -> Result<(), Box<dyn error::Error>> {
-        let mut packet_length: [u8; 1] = [0; 1];
+        let mut packet_length = [0u8; 1];
         loop {
             reader.read_exact(&mut packet_length)?;
             match packet_length[0] >> 7 {
@@ -2385,11 +2385,11 @@ impl ContiguousCodestream {
         segment.vertical_offset = Vec::with_capacity(no_components as usize);
         for _ in 0..no_components {
             // TODO: Consider putting into struct
-            let mut horizontal_offset: [u8; 2] = [0; 2];
+            let mut horizontal_offset = [0u8; 2];
             reader.read_exact(&mut horizontal_offset)?;
             segment.horizontal_offset.push(horizontal_offset);
 
-            let mut vertical_offset: [u8; 2] = [0; 2];
+            let mut vertical_offset = [0u8; 2];
             reader.read_exact(&mut vertical_offset)?;
             segment.vertical_offset.push(vertical_offset);
         }
@@ -2406,7 +2406,7 @@ impl ContiguousCodestream {
         let mut segment = CommentMarkerSegment::default();
 
         // Length of marker segment in bytes (not including the marker).
-        let mut marker_segment_length: [u8; 2] = [0; 2];
+        let mut marker_segment_length = [0u8; 2];
         reader.read_exact(&mut marker_segment_length)?;
         reader.read_exact(&mut segment.registration_value)?;
 
