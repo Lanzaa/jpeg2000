@@ -123,26 +123,15 @@ fn test_tlm() {
     assert!(header.coding_style_component_segment().is_empty());
 
     // QCD
-    assert_eq!(header.quantization_default_marker_segment().length(), 4);
+    let qcd = header.quantization_default_marker_segment();
+    assert_eq!(qcd.length(), 4);
+    assert_eq!(qcd.quantization_style_u8(), 0b010_00000);
+    assert_eq!(qcd.quantization_info().guard_bits, 2);
     assert_eq!(
-        header
-            .quantization_default_marker_segment()
-            .quantization_style_u8(),
-        0b010_00000
+        qcd.quantization_info().style,
+        QuantizationStyle::NoQuantization
     );
-    assert_eq!(
-        header
-            .quantization_default_marker_segment()
-            .quantization_style(),
-        QuantizationStyle::No { guard: 2 }
-    );
-    assert_eq!(
-        header
-            .quantization_default_marker_segment()
-            .quantization_values()
-            .len(),
-        1
-    );
+    assert_eq!(qcd.quantization_values().len(), 1);
 
     // QCC
     assert!(header.quantization_component_segments().is_empty());
