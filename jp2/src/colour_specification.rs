@@ -1,4 +1,4 @@
-use log::{debug, warn};
+use log::warn;
 use std::error;
 use std::fmt;
 use std::io;
@@ -792,13 +792,6 @@ impl JBox for ColourSpecificationBox {
             );
         }
 
-        debug!("Method {:?}", method);
-        debug!("Precedence {:?}", self.precedence());
-        debug!(
-            "ColourSpace Approximation {:?}",
-            self.colourspace_approximation()
-        );
-
         self.method = match method[0] {
             // 1 - Enumerated Colourspace.
             //
@@ -835,7 +828,6 @@ impl JBox for ColourSpecificationBox {
                 let mut restricted_icc_profile = vec![0; self.length as usize - 3];
 
                 reader.read_exact(&mut restricted_icc_profile)?;
-                debug!("Restricted ICC Profile");
                 ColourSpecificationMethods::RestrictedICCProfile {
                     profile_data: restricted_icc_profile,
                 }
@@ -844,7 +836,6 @@ impl JBox for ColourSpecificationBox {
                 let mut any_icc_profile = vec![0; self.length as usize - 3];
 
                 reader.read_exact(&mut any_icc_profile)?;
-                debug!("Any ICC Profile");
                 ColourSpecificationMethods::AnyICCProfile {
                     profile_data: any_icc_profile,
                 }
@@ -854,7 +845,6 @@ impl JBox for ColourSpecificationBox {
                 let mut vendor_parameters = vec![0; self.length as usize - (3 + 16)];
                 reader.read_exact(&mut vendor_defined_code)?;
                 reader.read_exact(&mut vendor_parameters)?;
-                debug!("Vendor method");
                 ColourSpecificationMethods::VendorColourMethod {
                     vendor_defined_code,
                     vendor_parameters,
@@ -877,7 +867,6 @@ impl JBox for ColourSpecificationBox {
                 }
             }
             _ => {
-                debug!("Reserved method {}", method[0]);
                 // skip over the METHDAT that we don't understand
                 reader.seek_relative((self.length - 3) as i64)?;
                 ColourSpecificationMethods::Reserved { value: method[0] }
