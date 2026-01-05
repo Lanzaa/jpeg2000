@@ -17,3 +17,12 @@ pub struct I2 {
     pub x: u32,
     pub y: u32,
 }
+
+/// Convenience struct for hold image/tile/precinct/code-block bounds information
+#[derive(Debug, Clone, Copy)]
+pub struct Bounds {
+    pub x0: u32,
+    pub x1: u32,
+    pub y0: u32,
+    pub y1: u32,
+}
