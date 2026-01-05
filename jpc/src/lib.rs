@@ -3325,6 +3325,48 @@ pub fn decode_jpc<R: io::Read + io::Seek>(
     Ok(continuous_codestream)
 }
 
+pub enum DecodeError {
+    CodestreamError(CodestreamError),
+}
+
+#[derive(Debug, Clone)]
+pub struct ImageInfo {
+    pub width: u32,
+    pub height: u32,
+    pub num_components: u16,
+    components: Vec<ComponentInfo>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ComponentInfo {
+    pub bit_depth: u8,
+    pub is_signed: bool,
+}
+
+impl ImageInfo {
+    /// Get info for a specific component
+    pub fn component(&self, index: u16) -> Option<&ComponentInfo> {
+        self.components.get(index as usize)
+    }
+
+    /// Iterate over all components
+    pub fn components(&self) -> &[ComponentInfo] {
+        &self.components
+    }
+}
+
+pub trait ImageDecoder<R: io::Read + io::Seek> {
+    /// Create a new decoder from a reader
+    fn new(reader: R) -> Result<Self, DecodeError>;
+
+    /// Get image metadata (already read during new())
+    fn info(&self) -> &ImageInfo;
+
+    /// Decode single component
+    /// Buffer must be: width * height * (bit_depth/8)
+    fn decode_component(&mut self, component: u16, buf: &mut [u8]) -> Result<(), DecodeError>;
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{Cursor, Seek};
