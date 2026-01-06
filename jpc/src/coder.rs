@@ -325,6 +325,7 @@ impl MqEncoder {
     }
 }
 
+/// A decoder pulls bits based on context, `cx`, from arithmetic encoded data.
 pub trait Decoder {
     fn decode_bit(&mut self, cx: usize) -> u8;
 }

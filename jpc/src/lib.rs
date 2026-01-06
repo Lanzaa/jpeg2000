@@ -8,7 +8,7 @@ use std::fmt;
 use std::io;
 use std::str;
 
-mod code_block;
+pub mod code_block;
 mod coder;
 mod shared;
 mod tag_tree;
