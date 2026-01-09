@@ -7,7 +7,7 @@
 //! below it is recorded. Figure B.12 shows an example of this representation. The notation, qi(m,
 //! n), is the value at the node that is mth from the left and nth from the top, at the ith level.
 //! Level 0 is the lowest level of the tag tree; it contains the top node.
-use std::io::Read;
+use std::io::{self, Read};
 
 use log::{debug, info};
 
@@ -39,7 +39,11 @@ impl ZeroPlaneTagTree {
     }
 
     /// Read enough bits to decide on value
-    pub fn read<R: Read>(&mut self, dim_idx: I2, br: &mut BitReader<'_, R>) -> u32 {
+    pub fn read<R: Read>(
+        &mut self,
+        dim_idx: I2,
+        br: &mut BitReader<'_, R>,
+    ) -> Result<u32, io::Error> {
         self.tag_tree.read(dim_idx, br)
     }
 }
@@ -72,20 +76,20 @@ impl InclusionTagTree {
         dim_idx: I2,
         bound: u32,
         br: &mut BitReader<'_, R>,
-    ) -> bool {
+    ) -> Result<bool, io::Error> {
         let node = self
             .tag_tree
-            .read_until_bound(dim_idx, bound, self.tag_tree.max_depth, br);
+            .read_until_bound(dim_idx, bound, self.tag_tree.max_depth, br)?;
         match node {
             TagTreeNode::SeeParent => panic!("unable to handle"),
             TagTreeNode::AtLeast(v) => {
                 // partials must be bigger than bound to be returned
                 assert!(v > bound, "Expected to know partial is large enough");
-                false
+                Ok(false)
             }
             TagTreeNode::Value(v) => {
                 assert!(v <= bound, "was previously included");
-                true
+                Ok(true)
             }
         }
     }
@@ -194,24 +198,24 @@ impl TagTreeDecoder {
         bound: u32,
         level: usize,
         br: &mut BitReader<'_, R>,
-    ) -> TagTreeNode {
+    ) -> Result<TagTreeNode, io::Error> {
         let mut partial = match *self.node(dim_idx, level) {
             value_node @ TagTreeNode::Value(_) => {
                 // have a value at this depth, return it to caller
-                return value_node;
+                return Ok(value_node);
             }
             TagTreeNode::SeeParent => {
                 let parent_dim = I2 {
                     x: dim_idx.x / 2,
                     y: dim_idx.y / 2,
                 };
-                let parent = self.read_until_bound(parent_dim, bound, level - 1, br);
+                let parent = self.read_until_bound(parent_dim, bound, level - 1, br)?;
                 match parent {
                     TagTreeNode::SeeParent => panic!("no base case"),
                     TagTreeNode::AtLeast(v) => {
                         // partial at the parent level nothing left to do, return it to caller
                         assert!(v > bound, "Expected invariant to be satisfied");
-                        return parent;
+                        return Ok(parent);
                     }
                     TagTreeNode::Value(v) => v,
                 }
@@ -220,23 +224,23 @@ impl TagTreeDecoder {
         };
 
         while partial <= bound {
-            if br.next_bit() {
+            if br.next_bit()? {
                 // Accept the value
                 *self.node_mut(dim_idx, level) = TagTreeNode::Value(partial);
-                return *self.node(dim_idx, level);
+                return Ok(*self.node(dim_idx, level));
             }
             partial += 1;
         }
         *self.node_mut(dim_idx, level) = TagTreeNode::AtLeast(partial);
-        *self.node(dim_idx, level)
+        Ok(*self.node(dim_idx, level))
     }
 
-    fn read<R: Read>(&mut self, dim_idx: I2, br: &mut BitReader<'_, R>) -> u32 {
-        let TagTreeNode::Value(v) = self.read_until_bound(dim_idx, u32::MAX, self.max_depth, br)
+    fn read<R: Read>(&mut self, dim_idx: I2, br: &mut BitReader<'_, R>) -> Result<u32, io::Error> {
+        let TagTreeNode::Value(v) = self.read_until_bound(dim_idx, u32::MAX, self.max_depth, br)?
         else {
             panic!("Unable to read value");
         };
-        v
+        Ok(v)
     }
 
     /// way to grab node mutable
@@ -268,18 +272,19 @@ mod tests {
     }
 
     #[test]
-    fn test_oner() {
+    fn test_oner() -> Result<(), io::Error> {
         init_logger();
         // Test a one item tree
         let mut tt = TagTreeDecoder::new(1, 1);
         assert_eq!(0, tt.max_depth);
         let mut cursor = Cursor::new([0b0010_0000]);
         let mut bits_read_exp = 0;
-        let mut br = BitReader::new(&mut cursor);
+        let mut br = BitReader::new(&mut cursor).unwrap();
 
-        assert_eq!(2, tt.read(I2 { x: 0, y: 0 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 0, y: 0 }, &mut br)?);
         bits_read_exp += 3;
         assert_eq!(bits_read_exp, br.bits_read());
+        Ok(())
     }
 
     /// Test a two level tree, max_depth == 1.
@@ -298,27 +303,28 @@ mod tests {
     /// │    q₀(0,0)      │
     /// └─────────────────┘
     #[test]
-    fn test_two_level() {
+    fn test_two_level() -> Result<(), io::Error> {
         init_logger();
         let mut tt = TagTreeDecoder::new(2, 2);
         assert_eq!(1, tt.max_depth);
 
         let mut cursor = Cursor::new([0b0111_0101]);
         let mut bits_read_exp = 0;
-        let mut br = BitReader::new(&mut cursor);
+        let mut br = BitReader::new(&mut cursor)?;
 
-        assert_eq!(1, tt.read(I2 { x: 0, y: 0 }, &mut br));
+        assert_eq!(1, tt.read(I2 { x: 0, y: 0 }, &mut br)?);
         bits_read_exp += 3;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(1, tt.read(I2 { x: 1, y: 0 }, &mut br));
+        assert_eq!(1, tt.read(I2 { x: 1, y: 0 }, &mut br)?);
         bits_read_exp += 1;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(2, tt.read(I2 { x: 0, y: 1 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 0, y: 1 }, &mut br)?);
         bits_read_exp += 2;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(2, tt.read(I2 { x: 1, y: 1 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 1, y: 1 }, &mut br)?);
         bits_read_exp += 2;
         assert_eq!(bits_read_exp, br.bits_read());
+        Ok(())
     }
 
     /// Test basic tag tree from B.10.2
@@ -356,7 +362,7 @@ mod tests {
     /// Each level represents the minimum value of a 2x2 block
     /// (or smaller at boundaries) from the level below.
     #[test]
-    fn test_given_example() {
+    fn test_given_example() -> Result<(), io::Error> {
         init_logger();
         let mut tt = TagTreeDecoder::new(6, 3);
 
@@ -369,75 +375,76 @@ mod tests {
             0b1101_0000,
         ]);
         let mut bits_read_exp = 0;
-        let mut br = BitReader::new(&mut cursor);
+        let mut br = BitReader::new(&mut cursor)?;
 
         assert_eq!(3, tt.max_depth);
 
-        assert_eq!(1, tt.read(I2 { x: 0, y: 0 }, &mut br));
+        assert_eq!(1, tt.read(I2 { x: 0, y: 0 }, &mut br)?);
         bits_read_exp += 5;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(3, tt.read(I2 { x: 1, y: 0 }, &mut br));
+        assert_eq!(3, tt.read(I2 { x: 1, y: 0 }, &mut br)?);
         bits_read_exp += 3;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(2, tt.read(I2 { x: 2, y: 0 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 2, y: 0 }, &mut br)?);
         bits_read_exp += 3;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(3, tt.read(I2 { x: 3, y: 0 }, &mut br));
+        assert_eq!(3, tt.read(I2 { x: 3, y: 0 }, &mut br)?);
         bits_read_exp += 3;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(2, tt.read(I2 { x: 4, y: 0 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 4, y: 0 }, &mut br)?);
         bits_read_exp += 4;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(3, tt.read(I2 { x: 5, y: 0 }, &mut br));
+        assert_eq!(3, tt.read(I2 { x: 5, y: 0 }, &mut br)?);
         bits_read_exp += 2;
         assert_eq!(bits_read_exp, br.bits_read());
 
         // Next row
-        assert_eq!(2, tt.read(I2 { x: 0, y: 1 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 0, y: 1 }, &mut br)?);
         bits_read_exp += 2;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(2, tt.read(I2 { x: 1, y: 1 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 1, y: 1 }, &mut br)?);
         bits_read_exp += 2;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(1, tt.read(I2 { x: 2, y: 1 }, &mut br));
+        assert_eq!(1, tt.read(I2 { x: 2, y: 1 }, &mut br)?);
         bits_read_exp += 1;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(4, tt.read(I2 { x: 3, y: 1 }, &mut br));
+        assert_eq!(4, tt.read(I2 { x: 3, y: 1 }, &mut br)?);
         bits_read_exp += 4;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(3, tt.read(I2 { x: 4, y: 1 }, &mut br));
+        assert_eq!(3, tt.read(I2 { x: 4, y: 1 }, &mut br)?);
         bits_read_exp += 2;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(2, tt.read(I2 { x: 5, y: 1 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 5, y: 1 }, &mut br)?);
         bits_read_exp += 1;
         assert_eq!(bits_read_exp, br.bits_read());
 
         // Next row
-        assert_eq!(2, tt.read(I2 { x: 0, y: 2 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 0, y: 2 }, &mut br)?);
         bits_read_exp += 3;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(2, tt.read(I2 { x: 1, y: 2 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 1, y: 2 }, &mut br)?);
         bits_read_exp += 1;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(2, tt.read(I2 { x: 2, y: 2 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 2, y: 2 }, &mut br)?);
         bits_read_exp += 3;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(2, tt.read(I2 { x: 3, y: 2 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 3, y: 2 }, &mut br)?);
         bits_read_exp += 1;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(1, tt.read(I2 { x: 4, y: 2 }, &mut br));
+        assert_eq!(1, tt.read(I2 { x: 4, y: 2 }, &mut br)?);
         bits_read_exp += 2;
         assert_eq!(bits_read_exp, br.bits_read());
-        assert_eq!(2, tt.read(I2 { x: 5, y: 2 }, &mut br));
+        assert_eq!(2, tt.read(I2 { x: 5, y: 2 }, &mut br)?);
         bits_read_exp += 2;
         assert_eq!(bits_read_exp, br.bits_read());
+        Ok(())
     }
 
     /// Figure B.13 and Table B.5
     ///
     /// Tests parsing inclusion status
     #[test]
-    fn test_packet_cb_inclusion() {
+    fn test_packet_cb_inclusion() -> Result<(), io::Error> {
         init_logger();
         let mut incl_tree = InclusionTagTree::new(3, 2);
 
@@ -459,7 +466,7 @@ mod tests {
         let mut cursor = Cursor::new([0b1111_0001, 0b0011_0000]);
 
         let mut bits_read_exp = 0;
-        let mut br = BitReader::new(&mut cursor);
+        let mut br = BitReader::new(&mut cursor)?;
 
         {
             let cb00 = I2 { x: 0, y: 0 };
@@ -467,7 +474,7 @@ mod tests {
             assert!(!included);
             assert_eq!(bits_read_exp, br.bits_read());
 
-            let to_include = incl_tree.read_for_inclusion(cb00, 0, &mut br);
+            let to_include = incl_tree.read_for_inclusion(cb00, 0, &mut br)?;
             assert!(to_include, "expected to include value");
             bits_read_exp += 3;
             assert_eq!(bits_read_exp, br.bits_read());
@@ -477,7 +484,7 @@ mod tests {
             let included = incl_tree.query_inclusion(cb10, 0);
             assert!(!included);
 
-            let to_include = incl_tree.read_for_inclusion(cb10, 0, &mut br);
+            let to_include = incl_tree.read_for_inclusion(cb10, 0, &mut br)?;
             assert!(to_include, "expected to include value");
             bits_read_exp += 1;
             assert_eq!(bits_read_exp, br.bits_read());
@@ -487,7 +494,7 @@ mod tests {
             let included = incl_tree.query_inclusion(cb20, 0);
             assert!(!included);
 
-            let to_include = incl_tree.read_for_inclusion(cb20, 0, &mut br);
+            let to_include = incl_tree.read_for_inclusion(cb20, 0, &mut br)?;
             assert!(!to_include, "!expected to include value");
             bits_read_exp += 1;
             assert_eq!(bits_read_exp, br.bits_read());
@@ -497,7 +504,7 @@ mod tests {
             let included = incl_tree.query_inclusion(cb01, 0);
             assert!(!included);
 
-            let to_include = incl_tree.read_for_inclusion(cb01, 0, &mut br);
+            let to_include = incl_tree.read_for_inclusion(cb01, 0, &mut br)?;
             assert!(!to_include, "!expected to include value");
             bits_read_exp += 1;
             assert_eq!(bits_read_exp, br.bits_read());
@@ -507,7 +514,7 @@ mod tests {
             let included = incl_tree.query_inclusion(cb11, 0);
             assert!(!included);
 
-            let to_include = incl_tree.read_for_inclusion(cb11, 0, &mut br);
+            let to_include = incl_tree.read_for_inclusion(cb11, 0, &mut br)?;
             assert!(!to_include, "!expected to include value");
             bits_read_exp += 1;
             assert_eq!(bits_read_exp, br.bits_read());
@@ -517,7 +524,7 @@ mod tests {
             let included = incl_tree.query_inclusion(cb21, 0);
             assert!(!included);
 
-            let to_include = incl_tree.read_for_inclusion(cb21, 0, &mut br);
+            let to_include = incl_tree.read_for_inclusion(cb21, 0, &mut br)?;
             assert!(!to_include, "!expected to include value");
             bits_read_exp += 0;
             assert_eq!(bits_read_exp, br.bits_read());
@@ -543,7 +550,7 @@ mod tests {
             let included = incl_tree.query_inclusion(cb20, 1);
             assert!(!included);
 
-            let to_include = incl_tree.read_for_inclusion(cb20, 1, &mut br);
+            let to_include = incl_tree.read_for_inclusion(cb20, 1, &mut br)?;
             assert!(!to_include, "!expected to include value");
             bits_read_exp += 2;
             assert_eq!(bits_read_exp, br.bits_read());
@@ -553,7 +560,7 @@ mod tests {
             let included = incl_tree.query_inclusion(cb01, 1);
             assert!(!included);
 
-            let to_include = incl_tree.read_for_inclusion(cb01, 1, &mut br);
+            let to_include = incl_tree.read_for_inclusion(cb01, 1, &mut br)?;
             assert!(!to_include, "!expected to include value");
             bits_read_exp += 1;
             assert_eq!(bits_read_exp, br.bits_read());
@@ -563,7 +570,7 @@ mod tests {
             let included = incl_tree.query_inclusion(cb11, 1);
             assert!(!included);
 
-            let to_include = incl_tree.read_for_inclusion(cb11, 1, &mut br);
+            let to_include = incl_tree.read_for_inclusion(cb11, 1, &mut br)?;
             assert!(to_include, "expected to include value");
             bits_read_exp += 1;
             assert_eq!(bits_read_exp, br.bits_read());
@@ -573,15 +580,16 @@ mod tests {
             let included = incl_tree.query_inclusion(cb21, 1);
             assert!(!included);
 
-            let to_include = incl_tree.read_for_inclusion(cb21, 1, &mut br);
+            let to_include = incl_tree.read_for_inclusion(cb21, 1, &mut br)?;
             assert!(to_include, "expected to include value");
             bits_read_exp += 1;
             assert_eq!(bits_read_exp, br.bits_read());
         }
+        Ok(())
     }
 
     #[test]
-    fn test_tag_tree_zero_bit() {
+    fn test_tag_tree_zero_bit() -> Result<(), io::Error> {
         init_logger();
         let mut zero_tree = ZeroPlaneTagTree::new(3, 2);
 
@@ -596,35 +604,36 @@ mod tests {
         let mut cursor = Cursor::new([0b0001_1101, 0b1000_1100]);
 
         let mut bits_read_exp = 0;
-        let mut br = BitReader::new(&mut cursor);
+        let mut br = BitReader::new(&mut cursor)?;
 
         {
             let cb00 = I2 { x: 0, y: 0 };
-            let zbs = zero_tree.read(cb00, &mut br);
+            let zbs = zero_tree.read(cb00, &mut br)?;
             assert_eq!(3, zbs);
             bits_read_exp += 6;
             assert_eq!(bits_read_exp, br.bits_read());
         }
         {
             let cb10 = I2 { x: 1, y: 0 };
-            let zbs = zero_tree.read(cb10, &mut br);
+            let zbs = zero_tree.read(cb10, &mut br)?;
             assert_eq!(4, zbs);
             bits_read_exp += 2;
             assert_eq!(bits_read_exp, br.bits_read());
         }
         {
             let cb11 = I2 { x: 1, y: 1 };
-            let zbs = zero_tree.read(cb11, &mut br);
+            let zbs = zero_tree.read(cb11, &mut br)?;
             assert_eq!(3, zbs);
             bits_read_exp += 1;
             assert_eq!(bits_read_exp, br.bits_read());
         }
         {
             let cb21 = I2 { x: 2, y: 1 };
-            let zbs = zero_tree.read(cb21, &mut br);
+            let zbs = zero_tree.read(cb21, &mut br)?;
             assert_eq!(6, zbs);
             bits_read_exp += 5;
             assert_eq!(bits_read_exp, br.bits_read());
         }
+        Ok(())
     }
 }
