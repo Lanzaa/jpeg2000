@@ -1,3 +1,16 @@
+//! Code blocks are a divisions of sub-bands into a rectangular region of coefficients.
+//!
+//! For a definition of code blocks see Section B.7 of ITU-T T.800(V4) | ISO/IEC 15444-1:2024
+//!
+//! For information relevant to decoding the coefficient bits see Annex D of ITU-T T.800(V4) | ISO/IEC 15444-1:2024
+//!
+//! A code block represents a 2d area of coefficients taken from a specific sub-band of a precinct.
+//! Each code block is decoded layer by layer allowing the coefficients to gradually increase in
+//! precision.
+//!
+use std::error::Error;
+use std::fmt::Display;
+
 use log::{debug, info};
 
 use crate::coder::{Decoder, RUN_LEN, UNIFORM};
@@ -25,16 +38,26 @@ impl Coeff {
     }
 }
 
-struct CodeBlockDecodeError {}
+#[derive(Debug)]
+pub enum CodeBlockDecodeError {}
+
+impl Error for CodeBlockDecodeError {}
+
+impl Display for CodeBlockDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // TODO improve error handling and display
+        write!(f, "Error decoding code block")
+    }
+}
 
 /// decoder for codeblocks
 ///
 /// A CodeBlockDecoder produces coefficients from compressed data.
-struct CodeBlockDecoder {
+#[derive(Debug)]
+pub struct CodeBlockDecoder {
     width: i32,
     height: i32,
     subband: SubBandType,
-    no_passes: u8, // Max 164 from table B.4
     bit_plane_shift: u8,
     coefficients: Vec<Coeff>,
 }
@@ -47,24 +70,30 @@ struct CoeffIndex {
 }
 
 impl CodeBlockDecoder {
-    fn new(width: i32, height: i32, subband: SubBandType, no_passes: u8, mb: u8) -> Self {
+    pub fn new(width: i32, height: i32, subband: SubBandType, mb: u8) -> Self {
         Self {
             width,
             height,
             subband,
-            no_passes,
             bit_plane_shift: mb - 1,
             coefficients: vec![Coeff::Insignificant(u8::MAX); (width * height) as usize],
         }
     }
 
     /// Decode coefficients from the given compressed data.
-    fn decode(&mut self, coder: &mut dyn Decoder) -> Result<(), CodeBlockDecodeError> {
-        info!("Decoding code block for subband {:?}", self.subband);
+    pub fn decode(
+        &mut self,
+        passes: u8,
+        coder: &mut dyn Decoder,
+    ) -> Result<(), CodeBlockDecodeError> {
+        info!(
+            "Decoding {} passes for code block for subband {:?}",
+            passes, self.subband
+        );
 
         // Start in CleanUp -> SignificancePropagation -> MagnitudeRefinement -> repeat ...
         self.pass_cleanup(coder);
-        for _ in (1..self.no_passes).step_by(3) {
+        for _ in (1..passes).step_by(3) {
             debug!("Beginning a pass set");
             self.bit_plane_shift -= 1;
             self.pass_significance(coder);
@@ -78,7 +107,7 @@ impl CodeBlockDecoder {
     /// TODO return type is whak
     /// Note, return a copy, maybe need to decode more for this codeblock later and don't want to
     /// lose state
-    fn coefficients(&self) -> Vec<i32> {
+    pub fn coefficients(&self) -> Vec<i32> {
         self.coefficients
             .iter()
             .map(|c| match c {
@@ -391,7 +420,8 @@ impl CodeBlockDecoder {
         }
     }
 
-    fn num_zero_bit_plane(&mut self, arg: u8) {
+    /// Set the number of zero bit planes not being encoded in the data
+    pub fn num_zero_bit_planes(&mut self, arg: u8) {
         self.bit_plane_shift -= arg;
     }
 
@@ -482,13 +512,6 @@ impl CodeBlockDecoder {
     }
 }
 
-/// ColumnIndex type to help avoid indexing mistakes
-#[derive(Debug)]
-struct ColumnIndex {
-    pub base_y: i32,
-    pub x: i32,
-}
-
 // Decoder State
 #[derive(Debug, Default)]
 enum State {
@@ -575,14 +598,13 @@ mod tests {
             index: 0,
         };
         // There are 16 coding passes in this example
-        let mut codeblock = CodeBlockDecoder::new(1, 5, SubBandType::LL, 16, 9);
-        // codeblock.mb(9);
-        codeblock.num_zero_bit_plane(3);
+        let mut codeblock = CodeBlockDecoder::new(1, 5, SubBandType::LL, 9);
+        codeblock.num_zero_bit_planes(3);
         // 9 - 3 = 6 bits to set
         // 6-1 = 5 => 1+5*3 = 16 coding passes
 
         assert!(
-            codeblock.decode(&mut coder).is_ok(),
+            codeblock.decode(16, &mut coder).is_ok(),
             "Expected decode to work"
         );
         assert_eq!(
@@ -604,13 +626,13 @@ mod tests {
         let mut coder = standard_decoder(bd);
 
         // There are 16 coding passes in this example
-        let mut codeblock = CodeBlockDecoder::new(1, 5, SubBandType::LL, 16, 9);
-        codeblock.num_zero_bit_plane(3);
+        let mut codeblock = CodeBlockDecoder::new(1, 5, SubBandType::LL, 9);
+        codeblock.num_zero_bit_planes(3);
         // 9 - 3 = 6 bits to set
         // 6-1 = 5 => 1+5*3 = 16 coding passes
 
         assert!(
-            codeblock.decode(&mut coder).is_ok(),
+            codeblock.decode(16, &mut coder).is_ok(),
             "Expected decode to work"
         );
 
@@ -647,14 +669,14 @@ mod tests {
             index: 0,
         };
         // There are 7 coding passes in this example
-        let mut codeblock = CodeBlockDecoder::new(1, 4, SubBandType::LH, 7, 10);
+        let mut codeblock = CodeBlockDecoder::new(1, 4, SubBandType::LH, 10);
         // codeblock.mb(10);
-        codeblock.num_zero_bit_plane(7);
+        codeblock.num_zero_bit_planes(7);
         // 10 - 7 = 3 bits to set
         // 3 bits to set => 7 (=1cleanup+2bitplanes*3) coding passes
 
         assert!(
-            codeblock.decode(&mut coder).is_ok(),
+            codeblock.decode(7, &mut coder).is_ok(),
             "Expected decode to work"
         );
         assert_eq!(
@@ -675,11 +697,11 @@ mod tests {
         let bd = b"\x0F\xB1\x76";
         let mut coder = standard_decoder(bd);
 
-        let mut codeblock = CodeBlockDecoder::new(1, 4, SubBandType::LH, 7, 10);
-        codeblock.num_zero_bit_plane(7);
+        let mut codeblock = CodeBlockDecoder::new(1, 4, SubBandType::LH, 10);
+        codeblock.num_zero_bit_planes(7);
 
         assert!(
-            codeblock.decode(&mut coder).is_ok(),
+            codeblock.decode(7, &mut coder).is_ok(),
             "Expected decode to work"
         );
 
