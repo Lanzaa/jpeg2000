@@ -46,6 +46,7 @@ fn test_blue() {
     assert_eq!(siz.vertical_separation(0).unwrap(), 1);
     assert_eq!(siz.vertical_separation(1).unwrap(), 1);
     assert_eq!(siz.vertical_separation(2).unwrap(), 1);
+    assert_eq!(siz.tile_dimensions(0), (128, 64));
 
     // CAP
     let maybe_cap = header.extended_capabilities_marker_segment();

@@ -1360,9 +1360,8 @@ impl ImageAndTileSizeMarkerSegment {
         t / self.num_x_tiles()
     }
 
-    // upper left x corner of the tile
-    // tx_0(p,q) = max(XTOsiz + p · XTsiz, XOsiz)
-    fn tile_x_upper(&self, t: u32) -> u32 {
+    /// tx_0(p,q) = max(XTOsiz + p · XTsiz, XOsiz)
+    fn tile_x0(&self, t: u32) -> u32 {
         cmp::max(
             self.tile_horizontal_offset()
                 + (self.tile_horizontal_index(t) * self.reference_tile_width()),
@@ -1370,9 +1369,8 @@ impl ImageAndTileSizeMarkerSegment {
         )
     }
 
-    // upper left y corner of the tile
-    // ty_0(p,q) = max(YTOsiz + q · YTsiz, YOsiz)
-    fn tile_y_upper(&self, t: u32) -> u32 {
+    /// ty_0(p,q) = max(YTOsiz + q · YTsiz, YOsiz)
+    fn tile_y0(&self, t: u32) -> u32 {
         cmp::max(
             self.tile_vertical_offset()
                 + (self.tile_vertical_index(t) * self.reference_tile_height()),
@@ -1380,30 +1378,28 @@ impl ImageAndTileSizeMarkerSegment {
         )
     }
 
-    // lower left x corner of the tile
-    // tx_1(p,q) = max(XTOsiz + (p + 1) · XTsiz, XOsiz)
-    fn tile_x_lower(&self, t: u32) -> u32 {
+    /// tx_1(p,q) = min(XTOsiz + (p + 1) · XTsiz, Xsiz)
+    fn tile_x1(&self, t: u32) -> u32 {
         cmp::min(
             self.tile_horizontal_offset()
                 + ((self.tile_horizontal_index(t) + 1) * self.reference_tile_width()),
-            self.image_horizontal_offset(),
-        ) - 1
+            self.reference_grid_width(),
+        )
     }
 
-    // lower left y corner of the tile
-    // ty_1(p,q) = max(YTOsiz + (q + 1) · YTsiz, YOsiz)
-    fn tile_y_lower(&self, t: u32) -> u32 {
+    /// ty_1(p,q) = min(YTOsiz + (q + 1) · YTsiz, Ysiz)
+    fn tile_y1(&self, t: u32) -> u32 {
         cmp::min(
             self.tile_vertical_offset()
                 + ((self.tile_vertical_index(t) + 1) * self.reference_tile_height()),
-            self.image_vertical_offset(),
-        ) - 1
+            self.reference_grid_height(),
+        )
     }
 
-    fn tile_dimensions(&self, t: u32) -> (u32, u32) {
+    pub fn tile_dimensions(&self, t: u32) -> (u32, u32) {
         (
-            self.tile_x_lower(t) - self.tile_x_upper(t),
-            self.tile_y_lower(t) - self.tile_y_upper(t),
+            self.tile_x1(t) - self.tile_x0(t),
+            self.tile_y1(t) - self.tile_y0(t),
         )
     }
 }
