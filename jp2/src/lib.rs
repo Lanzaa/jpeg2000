@@ -17,11 +17,17 @@
 //! The main entry point for this module is the `decode_jp2` function. That reads from the provided input, and returns a `JP2File` on success,
 //! or an error on failure.
 
+pub mod colour_specification;
+
 use log::{debug, info, warn};
 use std::error;
 use std::fmt;
 use std::io;
 use std::str;
+
+use crate::colour_specification::{
+    ColourSpecificationBox, ColourSpecificationMethods, EnumeratedColourSpaces,
+};
 
 /// Error values that may be returned from JP2 functions.
 #[derive(Debug)]
@@ -561,11 +567,11 @@ impl JBox for HeaderSuperBox {
                     let mut colour_specification_box = ColourSpecificationBox {
                         length: box_length,
                         offset: reader.stream_position()?,
-                        method: [0; 1],
+                        method: ColourSpecificationMethods::EnumeratedColourSpace {
+                            code: EnumeratedColourSpaces::Reserved,
+                        },
                         precedence: [0; 1],
                         colourspace_approximation: [0; 1],
-                        enumerated_colour_space: ENUMERATED_COLOUR_SPACE_UNKNOWN,
-                        restricted_icc_profile: vec![],
                     };
                     info!(
                         "ColourSpecificationBox start at {:?}",
@@ -1636,319 +1642,6 @@ impl JBox for BitsPerComponentBox {
         reader: &mut R,
     ) -> Result<(), Box<dyn error::Error>> {
         reader.read_exact(&mut self.bits_per_component)?;
-        Ok(())
-    }
-}
-
-type Method = [u8; 1];
-
-const METHOD_ENUMERATED_COLOUR_SPACE: Method = [1];
-const METHOD_ENUMERATED_RESTRICTED_ICC_PROFILE: Method = [2];
-
-#[derive(Debug, PartialEq)]
-/// Colour specification methods (METH).
-///
-/// In ITU T.800 | ISO/IEC 15444-1, there are two supported colour specification
-/// methods.
-pub enum ColourSpecificationMethods {
-    /// Enumerated colour space, using integer codes.
-    EnumeratedColourSpace,
-
-    /// Restricted ICC profile.
-    RestrictedICCProfile,
-
-    /// Other value, reserved for use by ITU | ISO/IEC.
-    ///
-    /// This may indicate an extension value from ITU T.801 | ISO/IEC 15444-2.
-    Reserved { value: Method },
-}
-
-impl fmt::Display for ColourSpecificationMethods {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ColourSpecificationMethods::EnumeratedColourSpace => {
-                write!(f, "{}", METHOD_ENUMERATED_COLOUR_SPACE[0])
-            }
-            ColourSpecificationMethods::RestrictedICCProfile => {
-                write!(f, "{}", METHOD_ENUMERATED_RESTRICTED_ICC_PROFILE[0])
-            }
-            ColourSpecificationMethods::Reserved { value } => write!(f, "{}", value[0]),
-        }
-    }
-}
-
-impl ColourSpecificationMethods {
-    fn new(value: [u8; 1]) -> ColourSpecificationMethods {
-        match value {
-            METHOD_ENUMERATED_COLOUR_SPACE => ColourSpecificationMethods::EnumeratedColourSpace,
-            METHOD_ENUMERATED_RESTRICTED_ICC_PROFILE => {
-                ColourSpecificationMethods::RestrictedICCProfile
-            }
-            value => ColourSpecificationMethods::Reserved { value },
-        }
-    }
-}
-
-type EnumeratedColourSpace = [u8; 4];
-
-const ENUMERATED_COLOUR_SPACE_UNKNOWN: EnumeratedColourSpace = [0, 0, 0, 0];
-const ENUMERATED_COLOUR_SPACE_SRGB: EnumeratedColourSpace = [0, 0, 0, 16];
-const ENUMERATED_COLOUR_SPACE_GREYSCALE: EnumeratedColourSpace = [0, 0, 0, 17];
-const ENUMERATED_COLOUR_SPACE_SYCC: EnumeratedColourSpace = [0, 0, 0, 18];
-
-#[derive(Debug, PartialEq)]
-/// Enumerated colour space values (EnumCS)
-///
-/// See ISO/IEC 15444-1:2024 Table I.10.
-pub enum EnumeratedColourSpaces {
-    #[allow(non_camel_case_types)]
-    /// sRGB
-    ///
-    /// sRGB as defined by IEC 61966-2-1 with Lmin<sub>i</sub>=0 and Lmax<sub>i</sub>=255.
-    /// This colourspace shall be used with channels carrying unsigned values only.
-    sRGB,
-    Greyscale,
-    #[allow(non_camel_case_types)]
-
-    /// sYCC
-    ///
-    /// sYCC as defined by IEC 61966-2-1 / Amd.1 with Lmin<sub>i</sub>=0 and Lmax<sub>i</sub>=255.
-    /// This colourspace shall be used with channels carrying unsigned values only.
-    ///
-    /// Note: it is not recommended to use the ICT or RCT specified in T.800 | ISO/IEC 15444-1 Annex G
-    /// with sYCC image data. See T.800 | ISO/IEC 15444-1 J.14 for guidelines on handling YCC codestreams.
-    sYCC,
-
-    /// Value reserved for other ITU-T | ISO/IEC uses.
-    ///
-    /// Note: There are additional values used in T.801 | ISO/IEC 15444-1 Table M.25.
-    Reserved,
-}
-
-impl EnumeratedColourSpaces {
-    fn new(value: [u8; 4]) -> EnumeratedColourSpaces {
-        match value {
-            ENUMERATED_COLOUR_SPACE_SRGB => EnumeratedColourSpaces::sRGB,
-            ENUMERATED_COLOUR_SPACE_GREYSCALE => EnumeratedColourSpaces::Greyscale,
-            ENUMERATED_COLOUR_SPACE_SYCC => EnumeratedColourSpaces::sYCC,
-            _ => EnumeratedColourSpaces::Reserved,
-        }
-    }
-}
-
-impl fmt::Display for EnumeratedColourSpaces {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                EnumeratedColourSpaces::sRGB => "sRGB",
-                EnumeratedColourSpaces::Greyscale => "greyscale",
-                EnumeratedColourSpaces::sYCC => "sYCC",
-                EnumeratedColourSpaces::Reserved => "Reserved",
-            }
-        )
-    }
-}
-
-/// Colour Specification box.
-///
-/// Each Colour Specification box defines one method by which an application can
-/// interpret the colourspace of the decompressed image data. This colour
-/// specification is to be applied to the image data after it has been
-/// decompressed and after any reverse decorrelating component transform has been
-/// applied to the image data.
-///
-/// A JP2 file may contain multiple Colour Specification boxes, but must contain
-/// at least one, specifying different methods for achieving “equivalent” results.
-/// A conforming JP2 reader shall ignore all Colour Specification boxes after the
-/// first. However, readers conforming to other standards may use those boxes as
-/// defined in those other standards.
-///
-/// See T.800 | ISO/IEC 15444-1 I.5.3.3 for the core requirements.
-/// See T.801 | ISO/IEC 15444-2 Section M11.7.2 for the extension requirements, which
-/// are not yet handled by this implementation.
-/// See T.814 | ISO/IEC 15444-15 Section D.4 for the High Throughput requirements,
-/// which are not yet handled by this implementation.
-#[derive(Debug, Default)]
-pub struct ColourSpecificationBox {
-    length: u64,
-    offset: u64,
-    method: [u8; 1],
-    precedence: [u8; 1],
-    colourspace_approximation: [u8; 1],
-    enumerated_colour_space: EnumeratedColourSpace,
-    restricted_icc_profile: Vec<u8>,
-}
-
-impl ColourSpecificationBox {
-    /// Specification method.
-    ///
-    /// This field specifies the method used by this Colour Specification box to
-    /// define the colourspace of the decompressed image.
-    ///
-    /// This field is encoded as a 1-byte unsigned integer.
-    ///
-    /// The value of this field shall be 1 or 2 for T.800 | ISO/IEC 15444-1. If
-    /// the value is 1, then an enumerated colourspace is available. If the value
-    /// is 2, then a restricted ICC profile is available.
-    pub fn method(&self) -> ColourSpecificationMethods {
-        ColourSpecificationMethods::new(self.method)
-    }
-
-    /// Precedence.
-    ///
-    /// This field is reserved for ISO use and the value shall be set to zero;
-    /// however, conforming readers shall ignore the value of this field.
-    ///
-    /// This field is specified as a signed 1 byte integer
-    pub fn precedence(&self) -> i8 {
-        self.precedence[0] as i8
-    }
-
-    /// Colourspace approximation.
-    ///
-    /// This field specifies the extent to which this colour specification method
-    /// approximates the “correct” definition of the colourspace.
-    ///
-    /// The value of this field shall be set to zero; however, conforming readers
-    /// shall ignore the value of this field.
-    ///
-    /// Other values are reserved for other ISO use.
-    /// This field is specified as 1 byte unsigned integer.
-    pub fn colourspace_approximation(&self) -> u8 {
-        self.colourspace_approximation[0]
-    }
-
-    /// Enumerated colourspace.
-    ///
-    /// This field specifies the colourspace of the image using integer codes.
-    ///
-    /// To correctly interpret the colour of an image using an enumerated
-    /// colourspace, the application must know the definition of that
-    /// colourspace internally.
-    ///
-    /// This field contains a 4-byte big endian unsigned integer value
-    /// indicating the colourspace of the image.
-    ///
-    /// If the value of the METH field is 2, then this field shall not exist.
-    pub fn enumerated_colour_space(&self) -> Option<EnumeratedColourSpaces> {
-        if self.method() == ColourSpecificationMethods::EnumeratedColourSpace {
-            Some(EnumeratedColourSpaces::new(self.enumerated_colour_space))
-        } else {
-            None
-        }
-    }
-
-    /// Restricted ICC colourspace.
-    ///
-    /// This field contains a valid ICC profile, as specified in the ICC Profile
-    /// Format Specification, which specifies the transformation of the decompressed
-    /// image data into the PCS.
-    ///
-    /// If the value of the METH field is 1, then this field shall not exist.
-    ///
-    /// If the value of the METH field is 2, then the ICC profile shall conform to
-    /// the Monochrome Input Profile class, the Three-Component Matrix-Based Input
-    /// Profile class, the Monochrome Display profile type, or the Three-Component
-    /// Matrix-Based Display profile type as defined in ISO 15076-1.
-    pub fn restricted_icc_profile(&self) -> Option<&Vec<u8>> {
-        if self.method() == ColourSpecificationMethods::RestrictedICCProfile {
-            Some(&self.restricted_icc_profile)
-        } else {
-            None
-        }
-    }
-}
-
-impl JBox for ColourSpecificationBox {
-    // The type of a Colour Specification box shall be ‘colr’ (0x636F 6C72).
-    fn identifier(&self) -> BoxType {
-        BOX_TYPE_COLOUR_SPECIFICATION
-    }
-
-    fn length(&self) -> u64 {
-        self.length
-    }
-
-    fn offset(&self) -> u64 {
-        self.offset
-    }
-
-    fn decode<R: io::Read + io::Seek>(
-        &mut self,
-        reader: &mut R,
-    ) -> Result<(), Box<dyn error::Error>> {
-        reader.read_exact(&mut self.method)?;
-        reader.read_exact(&mut self.precedence)?;
-        reader.read_exact(&mut self.colourspace_approximation)?;
-
-        if self.precedence() != 0 {
-            warn!("Precedence {:?} Unexpected", self.precedence());
-        }
-        if self.colourspace_approximation() != 0 {
-            warn!(
-                "Colourspace Approximation {:?} unexpected",
-                self.colourspace_approximation()
-            );
-        }
-
-        debug!("Method {:?}", self.method());
-        debug!("Precedence {:?}", self.precedence());
-        debug!(
-            "ColourSpace Approximation {:?}",
-            self.colourspace_approximation()
-        );
-
-        match self.method() {
-            // 1 - Enumerated Colourspace.
-            //
-            // This colourspace specification box contains the enumerated value
-            // of the colourspace of this image.
-            //
-            // The enumerated value is found in the EnumCS field in this box.
-            // If the value of the METH field is 1, then the EnumCS shall exist
-            // in this box immediately following the APPROX field, and the
-            // EnumCS field shall be the last field in this box
-            ColourSpecificationMethods::EnumeratedColourSpace => {
-                // TODO: Validate this box exists if METH field is 1 and is
-                // immediately following the APPROX field and the last field.
-                reader.read_exact(&mut self.enumerated_colour_space)?;
-                debug!("Enumerated Colour Space {:?}", self.enumerated_colour_space);
-            }
-
-            // 2 - Restricted ICC profile.
-            // This Colour Specification box contains an ICC profile in the PROFILE field.
-            //
-            // This profile shall specify the transformation needed to convert the decompressed image data into the PCS_XYZ, and shall conform to either the Monochrome Input or Three-Component Matrix-Based Input profile class, and contain all the required tags specified therein, as defined in ICC.1:1998-09.
-            //
-            // As such, the value of the Profile Connection Space field in the profile header in the embedded profile shall be ‘XYZ\040’ (0x5859 5A20) indicating that the
-            // output colourspace of the profile is in the XYZ colourspace.
-            //
-            // Any private tags in the ICC profile shall not change the visual appearance of an image processed using this ICC profile.
-            //
-            // The components from the codestream may have a range greater than the input range of the tone reproduction curve (TRC) of the ICC profile.
-            //
-            // Any decoded values should be clipped to the limits of the TRC before processing the image through the ICC profile.
-            //
-            // For example,
-            // negative sample values of signed components may be clipped to zero before processing the image data through the profile.
-            //
-            // If the value of METH is 2, then the PROFILE field shall immediately follow the APPROX field and the PROFILE field shall be the last field in the box.
-            ColourSpecificationMethods::RestrictedICCProfile => {
-                self.restricted_icc_profile = vec![0; self.length as usize - 3];
-
-                reader.read_exact(&mut self.restricted_icc_profile)?;
-                debug!("Restricted ICC Profile");
-            }
-
-            // Reserved for other ISO use. If the value of METH is not 1 or 2, there may be fields in this box following the APPROX field, and a conforming JP2 reader shall ignore the
-            // entire Colour Specification box.
-            ColourSpecificationMethods::Reserved { value } => {
-                debug!("Reserved method {}", value[0]);
-            }
-        }
-
         Ok(())
     }
 }
@@ -3241,4 +2934,425 @@ pub fn decode_jp2<R: io::Read + io::Seek>(
     };
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+
+    #[test]
+    fn parse_enumerated_colourspace() {
+        let input: Vec<u8> = vec![0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10];
+        let colour_specification_box = do_colour_specification_box_parse(input);
+        assert_eq!(
+            *colour_specification_box.method(),
+            ColourSpecificationMethods::EnumeratedColourSpace {
+                code: EnumeratedColourSpaces::sRGB
+            }
+        );
+        assert_eq!(colour_specification_box.colourspace_approximation(), 0);
+        assert_eq!(colour_specification_box.precedence(), 0);
+    }
+
+    #[test]
+    fn parse_enumerated_colourspace_approx() {
+        let input: Vec<u8> = vec![0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x12];
+        let colour_specification_box = do_colour_specification_box_parse(input);
+        assert_eq!(
+            *colour_specification_box.method(),
+            ColourSpecificationMethods::EnumeratedColourSpace {
+                code: EnumeratedColourSpaces::sYCC
+            }
+        );
+        assert_eq!(colour_specification_box.colourspace_approximation(), 1);
+        assert_eq!(colour_specification_box.precedence(), 0);
+    }
+
+    #[test]
+    fn parse_restricted_icc_colourspace() {
+        let input: Vec<u8> = vec![0x02, 0x03, 0x04, 0x01, 0x02, 0x04, 0xFF];
+        let colour_specification_box = do_colour_specification_box_parse(input);
+        assert_eq!(
+            *colour_specification_box.method(),
+            ColourSpecificationMethods::RestrictedICCProfile {
+                profile_data: vec![0x01, 0x02, 0x04, 0xFF]
+            }
+        );
+        assert_eq!(colour_specification_box.colourspace_approximation(), 4);
+        assert_eq!(colour_specification_box.precedence(), 3);
+    }
+
+    #[test]
+    fn parse_any_icc_colourspace() {
+        let input: Vec<u8> = vec![0x03, 0x00, 0x02, 0x01, 0x02, 0x04, 0xFF];
+        let colour_specification_box = do_colour_specification_box_parse(input);
+        assert_eq!(
+            *colour_specification_box.method(),
+            ColourSpecificationMethods::AnyICCProfile {
+                profile_data: vec![0x01, 0x02, 0x04, 0xFF]
+            }
+        );
+        assert_eq!(colour_specification_box.colourspace_approximation(), 2);
+        assert_eq!(colour_specification_box.precedence(), 0);
+    }
+
+    #[test]
+    fn parse_parameterized_colourspace() {
+        let input: Vec<u8> = vec![0x05, 0x01, 0x02, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x80];
+        let colour_specification_box = do_colour_specification_box_parse(input);
+        assert_eq!(
+            *colour_specification_box.method(),
+            ColourSpecificationMethods::ParameterizedColourspace {
+                colour_primaries: 1,
+                transfer_characteristics: 2,
+                matrix_coefficients: 3,
+                video_full_range: true
+            }
+        );
+        assert_eq!(colour_specification_box.colourspace_approximation(), 2);
+        assert_eq!(colour_specification_box.precedence(), 1);
+    }
+
+    fn do_colour_specification_box_parse(input: Vec<u8>) -> ColourSpecificationBox {
+        let mut colour_specification_box = ColourSpecificationBox::default();
+        colour_specification_box.length = input.len() as u64;
+        let mut cursor = Cursor::new(input);
+        let decode_result = colour_specification_box.decode(&mut cursor);
+        assert!(decode_result.is_ok());
+        colour_specification_box
+    }
+
+    #[test]
+    fn test_colourspace_method_format_bilevel() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::BiLevel,
+                }
+            ),
+            "Enumerated colourspace: Bi-level"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_ycbcr1() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::YCbCr1,
+                }
+            ),
+            "Enumerated colourspace: YCbCr(1)"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_ycbcr2() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::YCbCr2,
+                }
+            ),
+            "Enumerated colourspace: YCbCr(2)"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_ycbcr3() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::YCbCr3,
+                }
+            ),
+            "Enumerated colourspace: YCbCr(3)"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_photo_ycc() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::PhotoYCC,
+                }
+            ),
+            "Enumerated colourspace: PhotoYCC"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_cmy() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::CMY,
+                }
+            ),
+            "Enumerated colourspace: CMY"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_cmyk() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::CMYK,
+                }
+            ),
+            "Enumerated colourspace: CMYK"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_ycck() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::YCCK,
+                }
+            ),
+            "Enumerated colourspace: YCCK"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_cielab() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::CIELab {
+                        rl: 100,
+                        ol: 0,
+                        ra: 170,
+                        oa: 256,
+                        rb: 200,
+                        ob: 192,
+                        il: 0x00443635
+                    },
+                }
+            ),
+            "Enumerated colourspace: CIELab"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_bilevel2() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::BiLevel2,
+                }
+            ),
+            "Enumerated colourspace: Bi-level(2)"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_srgb() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::sRGB,
+                }
+            ),
+            "Enumerated colourspace: sRGB"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_greyscale() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::Greyscale,
+                }
+            ),
+            "Enumerated colourspace: greyscale"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_sycc() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::sYCC,
+                }
+            ),
+            "Enumerated colourspace: sYCC"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_ciejab() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::CIEJab {
+                        rj: 100,
+                        oj: 0,
+                        ra: 255,
+                        oa: 192,
+                        rb: 255,
+                        ob: 128
+                    },
+                }
+            ),
+            "Enumerated colourspace: CIEJab"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_esrgb() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::esRGB,
+                }
+            ),
+            "Enumerated colourspace: e-sRGB"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_romm_rgb() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::ROMMRGB,
+                }
+            ),
+            "Enumerated colourspace: ROMM-RGB"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_ybpbr_1125_60() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::YPbPr112560,
+                }
+            ),
+            "Enumerated colourspace: YPbPr(1125/60)"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_ybpbr_1250_50() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::YPbPr125050,
+                }
+            ),
+            "Enumerated colourspace: YPbPr(1250/50)"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_e_sycc() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::esYCC,
+                }
+            ),
+            "Enumerated colourspace: e-sYCC"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_scrgb() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::scRGB,
+                }
+            ),
+            "Enumerated colourspace: scRGB"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_scrgb_gray_scale() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::EnumeratedColourSpace {
+                    code: EnumeratedColourSpaces::scRGBGrayScale,
+                }
+            ),
+            "Enumerated colourspace: scRGB gray scale"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_restricted_icc() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::RestrictedICCProfile {
+                    // Not actually valid ICC data
+                    profile_data: vec![0, 0, 1, 3, 3]
+                }
+            ),
+            "Restricted ICC Profile"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_any_icc() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::AnyICCProfile {
+                    // Not actually valid ICC data
+                    profile_data: vec![2, 3]
+                }
+            ),
+            "\"Any\" ICC Profile"
+        );
+    }
+
+    #[test]
+    fn test_colourspace_method_format_parameterized() {
+        assert_eq!(
+            format!(
+                "{}",
+                ColourSpecificationMethods::ParameterizedColourspace {
+                    colour_primaries: 1,
+                    transfer_characteristics: 17,
+                    matrix_coefficients: 10,
+                    video_full_range: true
+                }
+            ),
+            "Parameterized colourspace, colour primaries: 1, transfer characteristics: 17, matrix coefficients: 10, video full range: true"
+        );
+    }
 }

@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
 use core::fmt::Write;
+use jp2::colour_specification::ColourSpecificationBox;
 use jp2::{
     decode_jp2, BitsPerComponentBox, CaptureResolutionBox, ChannelDefinitionBox,
-    ColourSpecificationBox, ComponentMappingBox, ContiguousCodestreamBox,
-    DefaultDisplayResolutionBox, FileTypeBox, HeaderSuperBox, JBox, PaletteBox, ResolutionSuperBox,
-    SignatureBox, UUIDBox, XMLBox,
+    ComponentMappingBox, ContiguousCodestreamBox, DefaultDisplayResolutionBox, FileTypeBox,
+    HeaderSuperBox, JBox, PaletteBox, ResolutionSuperBox, SignatureBox, UUIDBox, XMLBox,
 };
 use jpc::{
     decode_jpc, CodingStyleMarkerSegment, CodingStyleParameters, ContiguousCodestream, Header,
@@ -268,6 +268,7 @@ fn encode_colour_specification_box<W: io::Write>(
     writer: &mut W,
     colour_specification_box: &ColourSpecificationBox,
 ) -> Result<(), Box<dyn error::Error>> {
+    let method = colour_specification_box.method();
     writeln!(
         writer,
         "    <xjp:colr type=\"box\" length=\"{}\" offset=\"{}\">",
@@ -277,7 +278,7 @@ fn encode_colour_specification_box<W: io::Write>(
     writeln!(
         writer,
         "      <xjp:method length=\"1\" type=\"integer\">{}</xjp:method>",
-        colour_specification_box.method()
+        method.encoded_meth()[0]
     )?;
     writeln!(
         writer,
@@ -289,13 +290,14 @@ fn encode_colour_specification_box<W: io::Write>(
         "      <xjp:approx length=\"1\" type=\"integer\">{}</xjp:approx>",
         colour_specification_box.colourspace_approximation()
     )?;
-    if let Some(enumerated_colour_space) = colour_specification_box.enumerated_colour_space() {
-        writeln!(
-            writer,
-            "      <xjp:colour length=\"4\" type=\"integer\">{}</xjp:colour>",
-            enumerated_colour_space
-        )?;
-    }
+    // TODO: add support for enumerated and vendor colourspace elements in T.813 A.3.3
+    let methdat = method.encoded_methdat();
+    writeln!(
+        writer,
+        "      <xjp:colour length=\"{}\" type=\"hexbyte\">{}</xjp:colour>",
+        methdat.len(),
+        to_hex(methdat.iter())?
+    )?;
     writer.write_all(b"    </xjp:colr>\n")?;
     Ok(())
 }
