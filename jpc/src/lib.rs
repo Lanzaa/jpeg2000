@@ -588,6 +588,12 @@ pub struct StartOfTileSegment {
     no_tile_parts: [u8; 1],
 }
 
+impl StartOfTileSegment {
+    fn tile_index(&self) -> u16 {
+        u16::from_be_bytes(self.tile_index)
+    }
+}
+
 // A.12
 //
 // Coding style default (COD)
@@ -3814,7 +3820,7 @@ impl<R: io::Read + io::Seek> ImageDecoder for Profile0Decoder<R> {
         for (idx, tile_part) in tile_parts.iter().enumerate() {
             let header = &tile_part.header;
             let sot = &header.start_of_tile_segment;
-            let tile_index = sot.tile_index;
+            let tile_index = sot.tile_index();
             if tile_index != 0 {
                 todo!("Handle multiple tiles");
             }
