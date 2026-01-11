@@ -112,14 +112,21 @@ impl SubBandContext {
         dim_idx: I2,
         layer: u8,
         bit_reader: &mut BitReader<'_, R>,
-    ) -> bool {
-        self.inclusion_tree
-            .read_for_inclusion(dim_idx, layer as u32, bit_reader)
+    ) -> PacketResult<bool> {
+        Ok(self
+            .inclusion_tree
+            .read_for_inclusion(dim_idx, layer as u32, bit_reader)?)
     }
     /// Determines the number of zero bit planes for a given code block based on tag tree possibly
     /// reading bits.
-    fn zero_planes<R: Read>(&mut self, dim_idx: I2, bit_reader: &mut BitReader<'_, R>) -> u8 {
-        self.zeros_tree.read(dim_idx, bit_reader) as u8
+    ///
+    /// The
+    fn zero_planes<R: Read>(
+        &mut self,
+        dim_idx: I2,
+        bit_reader: &mut BitReader<'_, R>,
+    ) -> PacketResult<u8> {
+        Ok(self.zeros_tree.read(dim_idx, bit_reader)?)
     }
 
     fn included(&self, dim_idx: I2, layer: u8) -> bool {
@@ -208,8 +215,8 @@ impl PrecinctDecoder<NeedsHeader> {
         let Self { mut ctx, .. } = self;
 
         // Packets are byte aligned, so we can parse at the byte boundary
-        let mut bit_r = BitReader::new(reader);
-        let zl_mark = bit_r.next_bit();
+        let mut bit_r = BitReader::new(reader)?;
+        let zl_mark = bit_r.next_bit()?;
         if !zl_mark {
             println!("zero length");
             // Zero length packet
@@ -243,14 +250,15 @@ impl PrecinctDecoder<NeedsHeader> {
 
                 let to_include: bool = if sub_band_ctx.included(cb_idx, ctx.layer) {
                     // If a code-block has been previously encoded, check 1 bit for inclusion/exclusion status
-                    bit_r.next_bit()
+                    bit_r.next_bit()?
                 } else {
                     // If a code-block inclusion level has not been encoded, update tag tree until we know
-                    let decision = sub_band_ctx.inclusion_decision(cb_idx, ctx.layer, &mut bit_r);
+                    let decision =
+                        sub_band_ctx.inclusion_decision(cb_idx, ctx.layer, &mut bit_r)?;
                     println!("Checking cb inclusion {}", decision);
                     if decision {
                         // initialize zero plane information
-                        let zero_planes = sub_band_ctx.zero_planes(cb_idx, &mut bit_r);
+                        let zero_planes = sub_band_ctx.zero_planes(cb_idx, &mut bit_r)?;
                         println!("Initializing code block with {zero_planes} zero planes");
                         sub_band_ctx.cbs[cb as usize].num_zero_bit_planes(zero_planes);
                     }
@@ -264,9 +272,9 @@ impl PrecinctDecoder<NeedsHeader> {
 
                 // Ok code block included and zero planes initialized
                 println!("Parsing code pass count");
-                let code_pass_count = parse_coding_pass(&mut bit_r);
+                let code_pass_count = parse_coding_pass(&mut bit_r)?;
                 let mut to_inc = 0;
-                while bit_r.next_bit() {
+                while bit_r.next_bit()? {
                     println!("Increment lblock");
                     to_inc += 1;
                 }
@@ -276,7 +284,7 @@ impl PrecinctDecoder<NeedsHeader> {
                 let count_read = lblock + code_pass_count.ilog2() as u8;
 
                 println!("count bits to read {}", count_read);
-                let coded_bytes = bit_r.take(count_read);
+                let coded_bytes = bit_r.take(count_read)?;
                 //                println!(
                 //                    "Need to read {} bytes from reader for codeblock",
                 //                    coded_bytes
@@ -349,29 +357,29 @@ fn decode_packet<R: RR>(ctx: &mut SubBandPacketContext, reader: &mut R) -> ! {
     todo!("decode packet");
 }
 
-fn parse_coding_pass<R: Read>(br: &mut BitReader<'_, R>) -> u8 {
-    if !br.next_bit() {
+fn parse_coding_pass<R: Read>(br: &mut BitReader<'_, R>) -> PacketResult<u8> {
+    if !br.next_bit()? {
         // 0b0
-        return 1;
+        return Ok(1);
     }
-    if !br.next_bit() {
+    if !br.next_bit()? {
         // 0b10
-        return 2;
+        return Ok(2);
     }
     // 0b11 ?
-    let r = br.take(2);
+    let r = br.take(2)?;
     if r != 0b11 {
         // 0b 11 xx
-        return 3 + r;
+        return Ok(3 + r);
     }
     // 0b 1111 ?
-    let r = br.take(5);
+    let r = br.take(5)?;
     if r != 0b11111 {
-        return 6 + r;
+        return Ok(6 + r);
     }
     // 0b 1111 11111 ?
-    let r = br.take(7);
-    37 + r
+    let r = br.take(7)?;
+    Ok(37 + r)
 }
 
 #[cfg(test)]
@@ -546,8 +554,8 @@ mod tests {
         ];
         for (exp, bs) in vals {
             let mut cursor = Cursor::new(bs);
-            let mut br = BitReader::new(&mut cursor);
-            assert_eq!(exp, parse_coding_pass(&mut br));
+            let mut br = BitReader::new(&mut cursor).expect("unable to create reader");
+            assert_eq!(exp, parse_coding_pass(&mut br).expect("didn't expect fail"));
         }
     }
 }

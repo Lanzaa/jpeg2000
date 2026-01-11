@@ -39,12 +39,20 @@ impl ZeroPlaneTagTree {
     }
 
     /// Read enough bits to decide on value
+    ///
+    /// The maximum number of zero planes is no more than 38, since 38 is the highest bit depth
     pub fn read<R: Read>(
         &mut self,
         dim_idx: I2,
         br: &mut BitReader<'_, R>,
-    ) -> Result<u32, io::Error> {
-        self.tag_tree.read(dim_idx, br)
+    ) -> Result<u8, io::Error> {
+        self.tag_tree.read(dim_idx, br).map(|v| {
+            if v <= u8::MAX as u32 {
+                v as u8
+            } else {
+                panic!("Invalid zero plane number")
+            }
+        })
     }
 }
 
@@ -236,7 +244,8 @@ impl TagTreeDecoder {
     }
 
     fn read<R: Read>(&mut self, dim_idx: I2, br: &mut BitReader<'_, R>) -> Result<u32, io::Error> {
-        let TagTreeNode::Value(v) = self.read_until_bound(dim_idx, u32::MAX, self.max_depth, br)?
+        let TagTreeNode::Value(v) =
+            self.read_until_bound(dim_idx, u8::MAX as u32, self.max_depth, br)?
         else {
             panic!("Unable to read value");
         };
