@@ -3664,11 +3664,18 @@ pub enum DecodeError {
     BufferTooSmall { expected: usize, actual: usize },
     Unsupported(String),
     PacketError(PacketDecodeError),
+    IO(io::Error),
 }
 
 impl From<PacketDecodeError> for DecodeError {
     fn from(value: PacketDecodeError) -> Self {
         DecodeError::PacketError(value)
+    }
+}
+
+impl From<io::Error> for DecodeError {
+    fn from(io_error: io::Error) -> Self {
+        DecodeError::IO(io_error)
     }
 }
 
@@ -3846,9 +3853,7 @@ impl<R: io::Read + io::Seek> ImageDecoder for Profile0Decoder<R> {
 
             info!("Working tile-part index:{idx} for {}/{no_tp}", idx + 1);
             let data_to_read = tile_part.data_length;
-            if let Err(e) = self.reader.seek(SeekFrom::Start(tile_part.data_offset)) {
-                panic!("Err: {:?}", e); // TODO convert to decode error
-            }
+            self.reader.seek(SeekFrom::Start(tile_part.data_offset))?;
             tile.consume(data_to_read, &mut self.reader, None)?;
             println!("Handled a tile-part");
         }
