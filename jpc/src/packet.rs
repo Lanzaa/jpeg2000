@@ -478,25 +478,6 @@ mod tests {
         Ok(())
     }
 
-    //#[test]
-    //#[ignore = "I forgot how to extend this test to work..."]
-    //fn test_packet_decode_consume_8b16x16() {
-    //    // From 8b16x16
-    //    let ba =
-    //        b"\xdf\x82\x08\x14\xbd\x9e\x08\x18\x20\xcd\x8f\x4a\x65\x75\xc6\x77\xb9\xe1\x59\xf6";
-    //    // might need more data
-
-    //    let mut ctx = SubBandPacketContext {
-    //        inclusion: TagTreeDecoder::new(1, 1),
-    //        zero_bits: TagTreeDecoder::new(1, 1),
-    //    };
-    //    let mut reader = Cursor::new(ba);
-
-    //    let r = decode_packet(&mut ctx, &mut reader);
-    //    assert!(r.is_ok());
-    //    assert_eq!(reader.position(), 7, "expected to consume 7 bytes");
-    //}
-
     #[test]
     fn test_decode_zl_packet() -> Result<(), E> {
         let ba = b"\x00";
@@ -515,38 +496,6 @@ mod tests {
         assert_eq!(0, state.length, "zero length packet header");
         assert_eq!(reader.position(), 1, "expected to consume 1 bytes");
         Ok(())
-    }
-
-    #[test]
-    #[ignore = "TODO, need proper decoding and more data passed in"]
-    fn test_packet_decode_consume_c0p0() -> Result<(), E> {
-        // test case c0p0
-        let ba = b"\xdf\x85\xa8\x94\x36\x0f\x77\x22\xea\xf1";
-        let mut reader = Cursor::new(ba);
-
-        todo!("not sure what parameters are needed");
-        //let decoder = PrecinctDecoder::new(
-        //    5,
-        //    5,
-        //    Bounds {
-        //        x0: 0,
-        //        x1: 1,
-        //        y0: 0,
-        //        y1: 4,
-        //    },
-        //    false,
-        //);
-        //let decoder = decoder.consume_packet_header(&mut reader)?;
-        //assert_eq!(reader.position(), 9999999, "Header was 4 bytes");
-        //let decoder = decoder.consume_packet(&mut reader)?;
-        //assert_eq!(reader.position(), 9, "expected to consume 9 bytes");
-
-        //let sb = &decoder.ctx.sub_bands[0];
-        //let cb = &sb.cbs[0];
-        //let coeffs = cb.coefficients();
-        //assert_eq!(coeffs, vec![777]);
-
-        //Ok(())
     }
 
     /// from B.10 packet header
