@@ -3082,22 +3082,20 @@ impl Tile {
             for resolution_level in 0..=decom_level {
                 let nb = decom_level - resolution_level;
                 let tcr_bounds = component_bounds.resolution_bounds(nb);
-                let ebs: &[u8] = match resolution_level {
+                let mbs: Vec<u8> = match resolution_level {
                     0 => &exponents[0..=0],
                     _ => {
-                        //
                         let ro = resolution_level as usize * 3;
                         &exponents[(ro - 2)..=ro]
                     }
-                };
-
-                println!("exponents: {:?}", ebs);
-
+                }
+                .iter()
                 // Section B.5
-                let mbs: Vec<u8> = ebs.iter().map(|eb| guard_bits + eb - 1).collect();
+                .map(|eb| guard_bits + eb - 1)
+                .collect();
                 println!("Passing along mbs: {:?}", &mbs);
 
-                // TODO decomposing into precincts will require some work
+                // TODO decomposing into precincts will require some rework
                 let decoder =
                     PrecinctDecoder::new(xcb, ycb, &mbs, tcr_bounds, resolution_level == 0);
                 precincts.insert(
