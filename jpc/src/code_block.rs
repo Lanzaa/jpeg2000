@@ -39,7 +39,9 @@ impl Coeff {
 }
 
 #[derive(Debug)]
-pub enum CodeBlockDecodeError {}
+pub enum CodeBlockDecodeError {
+    TooManyDecodingPasses,
+}
 
 impl Error for CodeBlockDecodeError {}
 
@@ -60,6 +62,7 @@ pub struct CodeBlockDecoder {
     subband: SubBandType,
     bit_plane_shift: u8,
     coefficients: Vec<Coeff>,
+    decode_count: u32,
 }
 
 /// Wrapper around an x, y coord
@@ -77,6 +80,7 @@ impl CodeBlockDecoder {
             subband,
             bit_plane_shift: mb - 1,
             coefficients: vec![Coeff::Insignificant(u8::MAX); (width * height) as usize],
+            decode_count: 0,
         }
     }
 
@@ -87,12 +91,19 @@ impl CodeBlockDecoder {
         coder: &mut dyn Decoder,
     ) -> Result<(), CodeBlockDecodeError> {
         info!(
-            "Decoding {} passes for code block for subband {:?}",
-            passes, self.subband
+            "Decoding {} passes for code block for subband {:?}, decode_count {}, bit_plane {}",
+            passes, self.subband, self.decode_count, self.bit_plane_shift
         );
+        let too_many_passes = (passes - 1) / 3 > self.bit_plane_shift;
+        if too_many_passes {
+            return Err(CodeBlockDecodeError::TooManyDecodingPasses);
+        }
+        assert!((passes - 1) / 3 <= self.bit_plane_shift, "Too many passes");
 
         // Start in CleanUp -> SignificancePropagation -> MagnitudeRefinement -> repeat ...
-        self.pass_cleanup(coder);
+        if self.decode_count == 0 {
+            self.pass_cleanup(coder);
+        }
         for _ in (1..passes).step_by(3) {
             debug!("Beginning a pass set");
             self.bit_plane_shift -= 1;
@@ -101,6 +112,7 @@ impl CodeBlockDecoder {
             self.pass_cleanup(coder);
             debug!("coefficients: {:?}", self.coefficients);
         }
+        self.decode_count += 1;
         Ok(())
     }
     /// Return coefficients
