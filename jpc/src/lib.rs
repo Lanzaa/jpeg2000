@@ -15,6 +15,7 @@ use std::str;
 use crate::packet::states::NeedsHeader;
 use crate::packet::{PacketDecodeError, PrecinctDecoder};
 use crate::shared::Bounds;
+use crate::shared::SubBandType;
 
 pub mod code_block;
 
@@ -757,6 +758,14 @@ impl CodingStyleParameters {
     // Furthermore, the code-block size is restricted so that xcb + ycb <= 12.
     pub fn code_block_width(&self) -> u16 {
         2u16.pow(((self.code_block_width[0] & 0b00001111) + 2) as u32)
+    }
+
+    pub fn xcb(&self) -> u8 {
+        (self.code_block_width[0] & 0b00001111) + 2
+    }
+
+    pub fn ycb(&self) -> u8 {
+        (self.code_block_height[0] & 0b00001111) + 2
     }
 
     pub fn code_block_height(&self) -> u16 {
@@ -2817,7 +2826,13 @@ struct TileBounds(Bounds);
 struct TileComponentBounds(Bounds);
 
 #[derive(Debug)]
-struct SubBandBounds(Bounds);
+struct SubBandBounds {
+    bounds: Bounds,
+    sub_band_type: SubBandType,
+}
+
+#[derive(Debug)]
+struct TileComponentResolutionBounds(Bounds);
 
 impl TileBounds {
     /// Create TileComponentBounds for a given xrsiz and yrsiz
@@ -2834,48 +2849,69 @@ impl TileBounds {
 }
 
 impl TileComponentBounds {
-    fn sub_bands_ll(&self, decomposition_level: u8) -> SubBandBounds {
-        assert!(decomposition_level <= 32, "decomposition_level too large");
-        let pnb = 2u32.pow(decomposition_level as u32);
-        SubBandBounds(Bounds {
+    /// Creates bounds for a specific resolution level. Instead of passing resolution level
+    /// directly, n_b must be passed in. n_b is the decomposition level associated with a particular
+    /// resolution level. Where n_b equals the number of decomposition levels, N_L, minus the
+    /// resolution level.
+    ///
+    ///   n_b = N_L - resolution_level
+    fn resolution_bounds(&self, n_b: u8) -> TileComponentResolutionBounds {
+        assert!(n_b <= 32, "no more than 32");
+        let pnb = 2u32.pow(n_b as u32);
+        TileComponentResolutionBounds(Bounds {
             x0: self.0.x0.div_ceil(pnb),
             x1: self.0.x1.div_ceil(pnb),
             y0: self.0.y0.div_ceil(pnb),
             y1: self.0.y1.div_ceil(pnb),
         })
     }
-    fn sub_bands_hl(&self, decomposition_level: u8) -> SubBandBounds {
-        assert!(decomposition_level <= 32, "decomposition_level too large");
-        let pnbm1 = 2u32.pow((decomposition_level - 1) as u32);
-        let pnb = pnbm1 * 2;
-        SubBandBounds(Bounds {
-            x0: (self.0.x0 - pnbm1).div_ceil(pnb),
-            x1: (self.0.x1 - pnbm1).div_ceil(pnb),
-            y0: self.0.y0.div_ceil(pnb),
-            y1: self.0.y1.div_ceil(pnb),
-        })
+}
+
+// Calculations based on section B.5
+impl TileComponentResolutionBounds {
+    fn sub_bands_ll(&self) -> SubBandBounds {
+        SubBandBounds {
+            sub_band_type: SubBandType::LL,
+            bounds: Bounds {
+                x0: self.0.x0.div_ceil(2),
+                x1: self.0.x1.div_ceil(2),
+                y0: self.0.y0.div_ceil(2),
+                y1: self.0.y1.div_ceil(2),
+            },
+        }
     }
-    fn sub_bands_lh(&self, decomposition_level: u8) -> SubBandBounds {
-        assert!(decomposition_level <= 32, "decomposition_level too large");
-        let pnbm1 = 2u32.pow((decomposition_level - 1) as u32);
-        let pnb = pnbm1 * 2;
-        SubBandBounds(Bounds {
-            x0: self.0.x0.div_ceil(pnb),
-            x1: self.0.x1.div_ceil(pnb),
-            y0: (self.0.y0 - pnbm1).div_ceil(pnb),
-            y1: (self.0.y1 - pnbm1).div_ceil(pnb),
-        })
+    fn sub_bands_hl(&self) -> SubBandBounds {
+        SubBandBounds {
+            sub_band_type: SubBandType::HL,
+            bounds: Bounds {
+                x0: self.0.x0 / 2,
+                x1: self.0.x1 / 2,
+                y0: self.0.y0.div_ceil(2),
+                y1: self.0.y1.div_ceil(2),
+            },
+        }
     }
-    fn sub_bands_hh(&self, decomposition_level: u8) -> SubBandBounds {
-        assert!(decomposition_level <= 32, "decomposition_level too large");
-        let pnbm1 = 2u32.pow((decomposition_level - 1) as u32);
-        let pnb = pnbm1 * 2;
-        SubBandBounds(Bounds {
-            x0: (self.0.x0 - pnbm1).div_ceil(pnb),
-            x1: (self.0.x1 - pnbm1).div_ceil(pnb),
-            y0: (self.0.y0 - pnbm1).div_ceil(pnb),
-            y1: (self.0.y1 - pnbm1).div_ceil(pnb),
-        })
+    fn sub_bands_lh(&self) -> SubBandBounds {
+        SubBandBounds {
+            sub_band_type: SubBandType::LH,
+            bounds: Bounds {
+                x0: self.0.x0.div_ceil(2),
+                x1: self.0.x1.div_ceil(2),
+                y0: self.0.y0 / 2,
+                y1: self.0.y1 / 2,
+            },
+        }
+    }
+    fn sub_bands_hh(&self) -> SubBandBounds {
+        SubBandBounds {
+            sub_band_type: SubBandType::HH,
+            bounds: Bounds {
+                x0: self.0.x0 / 2,
+                x1: self.0.x1 / 2,
+                y0: self.0.y0 / 2,
+                y1: self.0.y1 / 2,
+            },
+        }
     }
 }
 
@@ -3007,7 +3043,8 @@ impl Tile {
         num_components: u16,
         cod: &CodingStyleMarkerSegment,
         coc: Option<&CodingStyleComponentSegment>,
-    ) -> Self {
+        qcd: &QuantizationDefaultMarkerSegment,
+    ) -> Result<Self, String> {
         if coc.is_some() {
             todo!("Handle coc for a tile");
         }
@@ -3023,8 +3060,8 @@ impl Tile {
             todo!("Handle user specified precinct sizes");
         }
         let decom_level = style.no_decomposition_levels();
-        let cbx = style.code_block_width();
-        let cby = style.code_block_height();
+        let xcb = style.xcb();
+        let ycb = style.ycb();
         println!("Creating tile with bounds: {:?}", tile_bounds);
         let range = ProgressionRange {
             layer: (0..num_layers),
@@ -3032,48 +3069,37 @@ impl Tile {
             resolution_level: (0..decom_level + 1),
             precinct: (0..1),
         };
-        println!("Need to handle: {decom_level}, {cbx}, {cby}");
+        println!("Need to handle: {decom_level}, 2^{xcb}x2^{ycb}");
         let mut precincts = HashMap::new();
         for component in 0..num_components {
+            // TODO grrab xrsiz and yrsiz from SIZ
+            let component_bounds = TileBounds(tile_bounds).component_bound(1, 1);
+            // TODO grab specific exponents for component
+            let guard_bits = qcd.quantization_info().guard_bits;
+            let exponents = qcd.quantization_info().exponents();
+            println!("exponents: {:?}", exponents);
             // TODO this is where the COC comes in
             for resolution_level in 0..=decom_level {
-                let reduction = 1 << (decom_level - resolution_level);
-                // Section B.5
-                {
-                    let trx0 = tile_bounds.x0.div_ceil(reduction);
-                    let trx1 = tile_bounds.x1.div_ceil(reduction);
-                    let try0 = tile_bounds.y0.div_ceil(reduction);
-                    let try1 = tile_bounds.y1.div_ceil(reduction);
-                    let tr_bounds = Bounds {
-                        x0: trx0,
-                        x1: trx1,
-                        y0: try0,
-                        y1: try1,
-                    };
-                    let ppx = 15; // TODO
-                    let ppx2 = 2u32.pow(ppx);
-                    let ppy = 15; // TODO
-                    let ppy2 = 2u32.pow(ppy);
-                    let numprecinctswide = if trx1 > trx0 {
-                        trx1.div_ceil(ppx2) - trx0.div(ppx2)
-                    } else {
-                        0
-                    };
-                    let numprecinctshigh = if try1 > try0 {
-                        try1.div_ceil(ppy2) - try0.div(ppy2)
-                    } else {
-                        0
-                    };
-                    let num_precincts = numprecinctswide * numprecinctshigh;
-                    println!("Found num_precincts: {}", num_precincts);
-                    if num_precincts != 1 {
-                        todo!("handle multiple precincts");
+                let nb = decom_level - resolution_level;
+                let tcr_bounds = component_bounds.resolution_bounds(nb);
+                let ebs: &[u8] = match resolution_level {
+                    0 => &exponents[0..=0],
+                    _ => {
+                        //
+                        let ro = resolution_level as usize * 3;
+                        &exponents[(ro - 2)..=ro]
                     }
-                }
-                // TODO decompose into precincts
-                let precinct_bounds = tile_bounds.clone();
+                };
+
+                println!("exponents: {:?}", ebs);
+
+                // Section B.5
+                let mbs: Vec<u8> = ebs.iter().map(|eb| guard_bits + eb - 1).collect();
+                println!("Passing along mbs: {:?}", &mbs);
+
+                // TODO decomposing into precincts will require some work
                 let decoder =
-                    PrecinctDecoder::new(cbx, cby, precinct_bounds, resolution_level == 0);
+                    PrecinctDecoder::new(xcb, ycb, &mbs, tcr_bounds, resolution_level == 0);
                 precincts.insert(
                     PrecinctKey {
                         component,
@@ -3084,12 +3110,12 @@ impl Tile {
                 );
             }
         }
-        Self {
-            bounds: tile_bounds,
+        Ok(Self {
+            bounds: TileBounds(tile_bounds),
             consume_count: 0,
             precincts,
             progression: into_iter(progression, range),
-        }
+        })
     }
 
     /// Consume packet data from the reader
@@ -3115,12 +3141,6 @@ impl Tile {
         if headers.is_some() {
             todo!("Passed in headers not implemented");
         }
-        let ranges = ProgressionRange {
-            layer: (0..1),
-            component: (0..1),
-            resolution_level: (0..2),
-            precinct: (0..1),
-        };
         // We know our progression order
         // TODO grab our actual progression order, not this fako
         let x = &mut self.progression;
@@ -3863,7 +3883,12 @@ impl<R: io::Read + io::Seek> Profile0Decoder<R> {
                 todo!("tile-part COC, coding style component changes not implemented");
             }
         }
-        Tile::new(tile_bounds, num_components, cod_main, None)
+        let qcd = main_header.quantization_default_marker_segment();
+        let tr = Tile::new(tile_bounds, num_components, cod_main, None, qcd);
+        match tr {
+            Ok(tile) => tile,
+            Err(e) => panic!("Unable to build tile: {}", e),
+        }
     }
 }
 
