@@ -418,9 +418,9 @@ mod tests {
     fn test_create() {
         let bounds = Bounds {
             x0: 0,
-            x1: 64,
+            x1: 32,
             y0: 0,
-            y1: 64,
+            y1: 32,
         };
         let tcr = TileComponentResolutionBounds(bounds);
         let r = PrecinctDecoder::new(5, 5, &[9], tcr, true);
@@ -436,7 +436,7 @@ mod tests {
             x0: 0,
             x1: 1,
             y0: 0,
-            y1: 9,
+            y1: 5,
         });
         let decoder = PrecinctDecoder::new(5, 5, &[9], tcr, true);
         let decoder = decoder.consume_packet_header(&mut reader)?;

@@ -2873,11 +2873,12 @@ impl TileComponentResolutionBounds {
     fn sub_bands_ll(&self) -> SubBandBounds {
         SubBandBounds {
             sub_band_type: SubBandType::LL,
+            // for LL we use the whole resolution level, there is no decomposition
             bounds: Bounds {
-                x0: self.0.x0.div_ceil(2),
-                x1: self.0.x1.div_ceil(2),
-                y0: self.0.y0.div_ceil(2),
-                y1: self.0.y1.div_ceil(2),
+                x0: self.0.x0,
+                x1: self.0.x1,
+                y0: self.0.y0,
+                y1: self.0.y1,
             },
         }
     }
