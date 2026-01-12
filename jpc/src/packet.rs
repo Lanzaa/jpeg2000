@@ -23,6 +23,7 @@ use crate::coder::standard_decoder;
 use crate::shared::{Bounds, SubBandType, I2};
 use crate::tag_tree::{InclusionTagTree, ZeroPlaneTagTree};
 use crate::{bit_reader::BitReader, code_block::CodeBlockDecoder};
+use crate::{SubBandBounds, TileComponentResolutionBounds};
 
 trait PacketDecoder {}
 
@@ -149,44 +150,67 @@ pub struct D {
     pub height: u32,
 }
 impl PrecinctDecoder<NeedsHeader> {
-    pub fn new(xcb: u16, ycb: u16, bounds: Bounds, is_ll: bool) -> Self {
-        let width = bounds.x1 - bounds.x0;
-        let height = bounds.y1 - bounds.y0;
-        println!("widht, height: {},{}", width, height);
-        println!("xcb, yxb: {},{}", xcb, ycb);
-
-        let num_cb_wide = width.div_ceil(xcb.into());
-        let num_cb_tall = height.div_ceil(ycb.into());
-        info!(
-            "Createing packet decoder codeblocks wxh: {}x{}",
-            num_cb_wide, num_cb_tall
-        );
-
-        //let code_block_initializer = vec![];
-
-        let sub_bands = if is_ll {
-            let mb = 9; // TODO
-            let ll_width = 1;
-            let ll_height = 1;
-            let sb_ctx = SubBandContext {
-                inclusion_tree: InclusionTagTree::new(ll_width, ll_height),
-                zeros_tree: ZeroPlaneTagTree::new(ll_width, ll_height),
-                cbs: vec![CodeBlockDecoder::new(1, 5, SubBandType::LL, mb)],
-            };
-            vec![sb_ctx]
-            //todo!("Handle LL init");
+    pub fn new(
+        cbx: u8,
+        cby: u8,
+        exponents: &[u8],
+        bounds: TileComponentResolutionBounds,
+        is_res_0: bool,
+    ) -> PrecinctDecoder<NeedsHeader> {
+        let pcbx = 2u32.pow(cbx as u32);
+        let pcby = 2u32.pow(cby as u32);
+        let sbs = if is_res_0 {
+            vec![bounds.sub_bands_ll()]
         } else {
-            let mb = 10; // TODO
-            let sb_ctx = SubBandContext {
-                inclusion_tree: InclusionTagTree::new(1, 1),
-                zeros_tree: ZeroPlaneTagTree::new(1, 1),
-                cbs: vec![CodeBlockDecoder::new(1, 4, SubBandType::HL, mb)],
-            };
-            vec![sb_ctx]
-            //todo!("Handle not LL subband init");
-            //vec![SubBandContext::new(Subcode_block_initializer)];
-            // vec![HL, LH, HH]
+            vec![
+                bounds.sub_bands_hl(),
+                bounds.sub_bands_lh(),
+                bounds.sub_bands_hh(),
+            ]
         };
+        let mut sub_band_ctxs = Vec::new();
+        for (sub_band_bounds, mb) in sbs.iter().zip(exponents) {
+            let sb_type = sub_band_bounds.sub_band_type;
+            let b = sub_band_bounds.bounds;
+
+            let width = b.x1 - b.x0;
+            let height = b.y1 - b.y0;
+
+            let num_cb_wide = width.div_ceil(pcbx) as usize;
+            let num_cb_tall = height.div_ceil(pcby) as usize;
+            println!("widht, height: {},{}", width, height);
+            println!("xcb, yxb: {},{}", pcbx, pcby);
+            info!(
+                "Createing packet decoder for sub_band {:?} with codeblocks wxh: {}x{}",
+                sb_type, num_cb_wide, num_cb_tall
+            );
+
+            if num_cb_tall == 0 || num_cb_wide == 0 {
+                continue; // skip this sub_band
+            }
+            let mut cbs = Vec::new();
+            for _ in 0..num_cb_tall {
+                for _ in 0..num_cb_tall {
+                    assert!(num_cb_tall <= 1, "only handle one codeblock");
+                    assert!(num_cb_wide <= 1, "only handle one codeblock");
+
+                    let cb_bounds = sub_band_bounds.bounds; // TODO decompose
+                    cbs.push(CodeBlockDecoder::new(
+                        (cb_bounds.x1 - cb_bounds.x0) as i32,
+                        (cb_bounds.y1 - cb_bounds.y0) as i32,
+                        sb_type,
+                        *mb,
+                    ));
+                }
+            }
+            let sb_ctx = SubBandContext {
+                inclusion_tree: InclusionTagTree::new(num_cb_wide, num_cb_tall),
+                zeros_tree: ZeroPlaneTagTree::new(num_cb_wide, num_cb_tall),
+                cbs,
+            };
+            sub_band_ctxs.push(sb_ctx);
+        }
+        let sub_bands = sub_band_ctxs;
 
         PrecinctDecoder {
             ctx: DecoderContext {
@@ -392,17 +416,14 @@ mod tests {
 
     #[test]
     fn test_create() {
-        let dims = D {
-            width: 128,
-            height: 128,
-        };
         let bounds = Bounds {
             x0: 0,
-            x1: 128,
+            x1: 64,
             y0: 0,
-            y1: 128,
+            y1: 64,
         };
-        let r = PrecinctDecoder::new(5, 5, bounds, true);
+        let tcr = TileComponentResolutionBounds(bounds);
+        let r = PrecinctDecoder::new(5, 5, &[9], tcr, true);
     }
 
     #[test]
@@ -411,17 +432,13 @@ mod tests {
         let mut reader = Cursor::new(ba);
 
         // TODO this new method sucks
-        let decoder = PrecinctDecoder::new(
-            5,
-            5,
-            Bounds {
-                x0: 0,
-                x1: 1,
-                y0: 0,
-                y1: 5,
-            },
-            true,
-        );
+        let tcr = TileComponentResolutionBounds(Bounds {
+            x0: 0,
+            x1: 1,
+            y0: 0,
+            y1: 9,
+        });
+        let decoder = PrecinctDecoder::new(5, 5, &[9], tcr, true);
         let decoder = decoder.consume_packet_header(&mut reader)?;
         assert_eq!(reader.position(), 3, "Header was 3 bytes");
         let decoder = decoder.consume_packet(&mut reader)?;
@@ -441,23 +458,19 @@ mod tests {
         let mut reader = Cursor::new(ba);
 
         // TODO this new method sucks
-        let decoder = PrecinctDecoder::new(
-            5,
-            5,
-            Bounds {
-                x0: 0,
-                x1: 1,
-                y0: 0,
-                y1: 4,
-            },
-            false,
-        );
+        let tcr = TileComponentResolutionBounds(Bounds {
+            x0: 0,
+            x1: 1,
+            y0: 0,
+            y1: 9,
+        });
+        let decoder = PrecinctDecoder::new(5, 5, &[10, 10, 10], tcr, false);
         let decoder = decoder.consume_packet_header(&mut reader)?;
         assert_eq!(reader.position(), 4, "Header was 4 bytes");
         let decoder = decoder.consume_packet(&mut reader)?;
         assert_eq!(reader.position(), 7, "expected to consume 7 bytes");
 
-        let sb = &decoder.ctx.sub_bands[0];
+        let sb = decoder.ctx.sub_bands.last().expect("Expected to grab LH");
         let cb = &sb.cbs[0];
         let coeffs = cb.coefficients();
         assert_eq!(coeffs, vec![1, 5, 1, 0]);
@@ -489,17 +502,13 @@ mod tests {
         let ba = b"\x00";
         let mut reader = Cursor::new(ba);
 
-        let decoder = PrecinctDecoder::new(
-            5,
-            5,
-            Bounds {
-                x0: 0,
-                x1: 1,
-                y0: 0,
-                y1: 4,
-            },
-            false,
-        );
+        let tcr = TileComponentResolutionBounds(Bounds {
+            x0: 0,
+            x1: 1,
+            y0: 0,
+            y1: 9,
+        });
+        let decoder = PrecinctDecoder::new(5, 5, &[10, 10, 10], tcr, false);
         let decoder = decoder.consume_packet_header(&mut reader)?;
         let state = decoder.state;
 
@@ -516,28 +525,28 @@ mod tests {
         let mut reader = Cursor::new(ba);
 
         todo!("not sure what parameters are needed");
-        let decoder = PrecinctDecoder::new(
-            5,
-            5,
-            Bounds {
-                x0: 0,
-                x1: 1,
-                y0: 0,
-                y1: 4,
-            },
-            false,
-        );
-        let decoder = decoder.consume_packet_header(&mut reader)?;
-        assert_eq!(reader.position(), 9999999, "Header was 4 bytes");
-        let decoder = decoder.consume_packet(&mut reader)?;
-        assert_eq!(reader.position(), 9, "expected to consume 9 bytes");
+        //let decoder = PrecinctDecoder::new(
+        //    5,
+        //    5,
+        //    Bounds {
+        //        x0: 0,
+        //        x1: 1,
+        //        y0: 0,
+        //        y1: 4,
+        //    },
+        //    false,
+        //);
+        //let decoder = decoder.consume_packet_header(&mut reader)?;
+        //assert_eq!(reader.position(), 9999999, "Header was 4 bytes");
+        //let decoder = decoder.consume_packet(&mut reader)?;
+        //assert_eq!(reader.position(), 9, "expected to consume 9 bytes");
 
-        let sb = &decoder.ctx.sub_bands[0];
-        let cb = &sb.cbs[0];
-        let coeffs = cb.coefficients();
-        assert_eq!(coeffs, vec![777]);
+        //let sb = &decoder.ctx.sub_bands[0];
+        //let cb = &sb.cbs[0];
+        //let coeffs = cb.coefficients();
+        //assert_eq!(coeffs, vec![777]);
 
-        Ok(())
+        //Ok(())
     }
 
     /// from B.10 packet header

@@ -57,7 +57,9 @@ fn test_8b16g_n2() -> Result<(), String> {
 
     // Pull out component data
     let mut buf = vec![0u8; (width * height) as usize];
-    decoder.decode_component(0, &mut buf).unwrap();
+    decoder.decode_component(0, &mut buf).unwrap_or_else(|e| {
+        panic!("decode error: {:?}", e);
+    });
     let fp = 40;
     assert_eq!(
         pgx_data.as_slice()[..fp],
