@@ -2804,10 +2804,90 @@ struct Image {}
 // selected subset of these subbands.
 #[derive(Debug)]
 struct Tile {
-    bounds: Bounds,
+    bounds: TileBounds,
     consume_count: u16,
     precincts: HashMap<PrecinctKey, PrecinctDecoder<NeedsHeader>>,
     progression: ProgressionState,
+}
+
+#[derive(Debug)]
+struct TileBounds(Bounds);
+
+#[derive(Debug)]
+struct TileComponentBounds(Bounds);
+
+#[derive(Debug)]
+struct SubBandBounds(Bounds);
+
+impl TileBounds {
+    /// Create TileComponentBounds for a given xrsiz and yrsiz
+    fn component_bound(&self, xrsiz: u8, yrsiz: u8) -> TileComponentBounds {
+        assert!(xrsiz != 0, "xrsiz invalid");
+        assert!(yrsiz != 0, "yrsiz invalid");
+        TileComponentBounds(Bounds {
+            x0: self.0.x0.div_ceil(xrsiz as u32),
+            x1: self.0.x1.div_ceil(xrsiz as u32),
+            y0: self.0.y0.div_ceil(yrsiz as u32),
+            y1: self.0.y1.div_ceil(yrsiz as u32),
+        })
+    }
+}
+
+impl TileComponentBounds {
+    fn sub_bands_ll(&self, decomposition_level: u8) -> SubBandBounds {
+        assert!(decomposition_level <= 32, "decomposition_level too large");
+        let pnb = 2u32.pow(decomposition_level as u32);
+        SubBandBounds(Bounds {
+            x0: self.0.x0.div_ceil(pnb),
+            x1: self.0.x1.div_ceil(pnb),
+            y0: self.0.y0.div_ceil(pnb),
+            y1: self.0.y1.div_ceil(pnb),
+        })
+    }
+    fn sub_bands_hl(&self, decomposition_level: u8) -> SubBandBounds {
+        assert!(decomposition_level <= 32, "decomposition_level too large");
+        let pnbm1 = 2u32.pow((decomposition_level - 1) as u32);
+        let pnb = pnbm1 * 2;
+        SubBandBounds(Bounds {
+            x0: (self.0.x0 - pnbm1).div_ceil(pnb),
+            x1: (self.0.x1 - pnbm1).div_ceil(pnb),
+            y0: self.0.y0.div_ceil(pnb),
+            y1: self.0.y1.div_ceil(pnb),
+        })
+    }
+    fn sub_bands_lh(&self, decomposition_level: u8) -> SubBandBounds {
+        assert!(decomposition_level <= 32, "decomposition_level too large");
+        let pnbm1 = 2u32.pow((decomposition_level - 1) as u32);
+        let pnb = pnbm1 * 2;
+        SubBandBounds(Bounds {
+            x0: self.0.x0.div_ceil(pnb),
+            x1: self.0.x1.div_ceil(pnb),
+            y0: (self.0.y0 - pnbm1).div_ceil(pnb),
+            y1: (self.0.y1 - pnbm1).div_ceil(pnb),
+        })
+    }
+    fn sub_bands_hh(&self, decomposition_level: u8) -> SubBandBounds {
+        assert!(decomposition_level <= 32, "decomposition_level too large");
+        let pnbm1 = 2u32.pow((decomposition_level - 1) as u32);
+        let pnb = pnbm1 * 2;
+        SubBandBounds(Bounds {
+            x0: (self.0.x0 - pnbm1).div_ceil(pnb),
+            x1: (self.0.x1 - pnbm1).div_ceil(pnb),
+            y0: (self.0.y0 - pnbm1).div_ceil(pnb),
+            y1: (self.0.y1 - pnbm1).div_ceil(pnb),
+        })
+    }
+}
+
+impl TileBounds {
+    fn sub_bound(&self) -> Bounds {
+        Bounds {
+            x0: 0,
+            y0: 0,
+            y1: 0,
+            x1: 0,
+        }
+    }
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
