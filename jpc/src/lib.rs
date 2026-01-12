@@ -3958,6 +3958,12 @@ impl<R: io::Read + io::Seek> ImageDecoder for Profile0Decoder<R> {
             let data_to_read = tile_part.data_length;
             self.reader.seek(SeekFrom::Start(tile_part.data_offset))?;
             tile.consume(data_to_read, &mut self.reader, None)?;
+            let end_pos = self.reader.stream_position()?;
+            assert_eq!(
+                tile_part.data_offset + data_to_read as u64,
+                end_pos,
+                "Expected to consume all tile part data"
+            );
             println!("Handled a tile-part");
         }
 
