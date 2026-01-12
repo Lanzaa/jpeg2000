@@ -1,18 +1,13 @@
 //! Test cases from standard compliance suite.
 use std::{
     fs::File,
-    io::{BufReader, Cursor},
+    io::BufReader,
     path::{Path, PathBuf},
 };
 
-use jpc::{
-    decode_jpc, CodingBlockStyle, CommentRegistrationValue, ImageDecoder,
-    MultipleComponentTransformation, Profile0Decoder, ProgressionOrder, QuantizationStyle,
-    TransformationFilter,
-};
+use jpc::{ImageDecoder, Profile0Decoder};
 
 mod shared;
-use log::info;
 use shared::{load_pgx, PgxImage};
 
 fn test_file(filename: &str) -> Result<PathBuf, String> {
@@ -72,7 +67,7 @@ fn test_8b16g_n2() -> Result<(), String> {
 }
 
 #[test]
-#[ignore = "lots of work needed before this is ready"]
+#[ignore = "Need to handle other progression orders"]
 fn test_c0p0() -> Result<(), String> {
     shared::init_logger();
 
@@ -84,62 +79,36 @@ fn test_c0p0() -> Result<(), String> {
         panic!("Unexpected type in test");
     };
 
-    todo!("TODO");
+    let j2k = test_file("p0_01.j2k")?;
+    let file = File::open(j2k.as_path()).expect("Unable to load test file");
+    let mut reader = BufReader::new(file);
+    let mut decoder = match Profile0Decoder::new(&mut reader) {
+        Ok(decoder) => decoder,
+        Err(e) => {
+            panic!("Error decoding file: {:?}", e);
+        }
+    };
 
-    //let j2k = test_file("p0_01.j2k")?;
-    //let file = File::open(j2k.as_path()).expect("Unable to load test file");
-    //let reader = BufReader::new(file);
-    //let mut decoder = Profile0Decoder::new(reader);
-    //let codestream = match decoder.read_codestream() {
-    //    Ok(cs) => cs,
-    //    Err(e) => panic!("Error decoding codestream: {}", e),
-    //};
-    //let header = codestream.header();
+    let image_info = decoder.info();
+    let (width, height) = (image_info.width, image_info.height);
+    assert_eq!(width, 128);
+    assert_eq!(height, 128);
+    assert_eq!(image_info.num_components, 1);
 
-    //let siz = header.image_and_tile_size_marker_segment();
-    //assert_eq!(siz.reference_grid_width(), 128);
-    //assert_eq!(siz.reference_grid_height(), 128);
-    //assert_eq!(siz.image_horizontal_offset(), 0);
-    //assert_eq!(siz.image_vertical_offset(), 0);
-    //assert_eq!(siz.offset(), 4);
-    ////assert_eq!(siz.length(), 47);
-    ////assert_eq!(siz.decoder_capabilities(), 0);
-    //assert_eq!(siz.image_horizontal_offset(), 0);
-    //assert_eq!(siz.image_vertical_offset(), 0);
-    //assert_eq!(siz.reference_tile_width(), 128);
-    //assert_eq!(siz.reference_tile_height(), 128);
-    //assert_eq!(siz.no_components(), 1);
-    //assert_eq!(siz.precision(0).unwrap(), 8);
-    //assert_eq!(siz.values_are_signed(0).unwrap(), false);
-    //assert_eq!(siz.horizontal_separation(0).unwrap(), 1);
-    //assert_eq!(siz.vertical_separation(0).unwrap(), 1);
-    //let progresion_order = header.coding_style_marker_segment().progression_order();
-    //assert_eq!(progresion_order, ProgressionOrder::RLLCPP);
+    // Pull out component data
+    let mut buf = vec![0u8; (width * height) as usize];
+    decoder.decode_component(0, &mut buf).unwrap_or_else(|e| {
+        panic!("decode error: {:?}", e);
+    });
+    let fp = 40;
+    assert_eq!(
+        pgx_data.as_slice()[..fp],
+        buf[..fp],
+        "Sample data should match."
+    );
+    assert_eq!(pgx_data.as_slice(), buf, "Sample data should match.");
 
-    //// assert_eq!(codestream.tiles.len(), 1, "Only one tile");
-
-    //info!("Hello world");
-
-    //let precision = siz.precision(0).unwrap();
-    //assert_eq!(precision, 8);
-
-    //// Pull out component data
-    //assert_eq!(siz.no_components(), 1);
-
-    //let (width, height) = decoder.dimensions();
-    //assert_eq!(width, 128, "expected width to be decoded correctly");
-    //assert_eq!(height, 128, "expected height to be decoded correctly");
-    //// Pull out component data
-    //let mut buf = vec![0u8; (width * height) as usize];
-    //decoder.read_component(0, &mut buf).unwrap();
-    //let fp = 40;
-    //assert_eq!(
-    //    pgx_data.as_slice()[..fp],
-    //    buf[..fp],
-    //    "Sample data should match."
-    //);
-    //assert_eq!(pgx_data.as_slice(), buf, "Sample data should match.");
-
+    Ok(())
     //todo!("Did we really pass !??!  YAY !!!");
 }
 
