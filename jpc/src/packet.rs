@@ -21,7 +21,7 @@ use std::io::{self, Read};
 
 use crate::code_block::CodeBlockDecodeError;
 use crate::coder::standard_decoder;
-use crate::shared::{Array2D, I2};
+use crate::shared::{Array2D, SubBandGroup, SubBandType, I2};
 use crate::tag_tree::{InclusionTagTree, ZeroPlaneTagTree};
 use crate::TileComponentResolutionBounds;
 use crate::{bit_reader::BitReader, code_block::CodeBlockDecoder};
@@ -31,7 +31,7 @@ trait PacketDecoder {}
 /// contains information from the relevant header
 #[derive(Debug, Default)]
 pub struct HeaderInfo {
-    // TODO is there anything from the header that is really interesting?
+    // TODO is there anything else from the header that is really interesting?
     pub length: usize, // TODO how big do packets get?
     pub packet_info: Vec<Vec<(I2, u8, u8)>>,
 }
@@ -121,6 +121,8 @@ impl SubBandContext {
 pub struct PrecinctDecoder {
     ctx: DecoderContext,
     header: Option<HeaderInfo>,
+    bounds: TileComponentResolutionBounds,
+    is_ll: bool,
 }
 
 pub trait RR: io::Read {}
@@ -212,20 +214,54 @@ impl PrecinctDecoder {
                 sub_bands,
             },
             header: None,
+            bounds,
+            is_ll: is_res_0,
         }
     }
 
-    pub fn grab_subbands(&self) -> Vec<Array2D<i32>> {
+    /// Grab sub band information for this precinct
+    pub fn grab_precinct_subbands(&self) -> SubBandGroup<Array2D<i32>> {
         // TODO combine code blocks
-        self.ctx
-            .sub_bands
-            .iter()
-            .map(|sbc| sbc.cbs[0].coefficients())
-            .collect()
+        let mut ll = None;
+        let mut hl = None;
+        let mut lh = None;
+        let mut hh = None;
+
+        for sb in &self.ctx.sub_bands {
+            if 1 != sb.cbs.len() {
+                todo!("combining code blocks not implemented ");
+            }
+            for code_block in &sb.cbs {
+                let sbt = code_block.sub_band();
+                (match sbt {
+                    SubBandType::LL => &mut ll,
+                    SubBandType::HL => &mut hl,
+                    SubBandType::LH => &mut lh,
+                    SubBandType::HH => &mut hh,
+                })
+                .insert(code_block.coefficients());
+            }
+        }
+
+        if let Some(ll) = ll {
+            SubBandGroup::LL(ll)
+        } else {
+            SubBandGroup::Partial {
+                hl: hl.unwrap_or_else(|| Array2D::new(0, 0)),
+                lh: lh.unwrap_or_else(|| Array2D::new(0, 0)),
+                hh: hh.unwrap_or_else(|| Array2D::new(0, 0)),
+            }
+        }
     }
+
     /// Consume a packet header pointed to by the reader
     pub fn consume_packet_header<R: RR>(self, reader: &mut R) -> PacketResult<PrecinctDecoder> {
-        let Self { mut ctx, .. } = self;
+        let Self {
+            mut ctx,
+            bounds,
+            is_ll,
+            ..
+        } = self;
 
         // Packets are byte aligned, so we can parse at the byte boundary
         let mut bit_r = BitReader::new(reader)?;
@@ -243,6 +279,8 @@ impl PrecinctDecoder {
                     length: 0,
                     ..Default::default()
                 }),
+                bounds,
+                is_ll,
             });
         }
 
@@ -313,12 +351,19 @@ impl PrecinctDecoder {
                 length: total_to_read,
                 packet_info,
             }),
+            bounds,
+            is_ll,
         })
     }
     /// Consume a packet pointed to by the reader. The previous call must be to
     /// consume_packet_header to prime the handlers.
     pub fn consume_packet<R: RR>(self, reader: &mut R) -> PacketResult<PrecinctDecoder> {
-        let Self { mut ctx, header } = self;
+        let Self {
+            mut ctx,
+            header,
+            bounds,
+            is_ll,
+        } = self;
 
         let Some(HeaderInfo { packet_info, .. }) = header else {
             panic!("Invalid consume_packet call");
@@ -338,8 +383,18 @@ impl PrecinctDecoder {
                 cb.decode(code_pass_count, &mut coder)?;
             }
         }
-        Ok(PrecinctDecoder { ctx, header: None })
+        Ok(PrecinctDecoder {
+            ctx,
+            header: None,
+            bounds,
+            is_ll,
+        })
     }
+}
+
+struct SubBandCoefficients<T> {
+    sub_band: SubBandType,
+    data: Array2D<T>,
 }
 
 // SubBandPacketContext records the tag trees used for context when decoding packet headers
@@ -391,6 +446,8 @@ fn parse_coding_pass<R: Read>(br: &mut BitReader<'_, R>) -> PacketResult<u8> {
 #[cfg(test)]
 mod tests {
     use std::io::{Cursor, Seek};
+
+    use crate::shared::Bounds;
 
     use super::*;
 
