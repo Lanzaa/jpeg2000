@@ -28,13 +28,9 @@ use crate::{bit_reader::BitReader, code_block::CodeBlockDecoder};
 
 trait PacketDecoder {}
 
-#[derive(Debug)]
-pub struct NeedsHeader;
-/// Ready consume a packet
-///
 /// contains information from the relevant header
 #[derive(Debug, Default)]
-pub struct ReadyForPacket {
+pub struct HeaderInfo {
     // TODO is there anything from the header that is really interesting?
     pub length: usize, // TODO how big do packets get?
     pub packet_info: Vec<Vec<(I2, u8, u8)>>,
@@ -124,7 +120,7 @@ impl SubBandContext {
 #[derive(Debug)]
 pub struct PrecinctDecoder {
     ctx: DecoderContext,
-    state: Option<ReadyForPacket>,
+    header: Option<HeaderInfo>,
 }
 
 pub trait RR: io::Read {}
@@ -215,7 +211,7 @@ impl PrecinctDecoder {
                 layer: 0,
                 sub_bands,
             },
-            state: None,
+            header: None,
         }
     }
 
@@ -243,7 +239,7 @@ impl PrecinctDecoder {
             //        );
             return Ok(PrecinctDecoder {
                 ctx,
-                state: Some(ReadyForPacket {
+                header: Some(HeaderInfo {
                     length: 0,
                     ..Default::default()
                 }),
@@ -313,21 +309,18 @@ impl PrecinctDecoder {
         }
         Ok(PrecinctDecoder {
             ctx,
-            state: Some(ReadyForPacket {
+            header: Some(HeaderInfo {
                 length: total_to_read,
                 packet_info,
             }),
         })
     }
-}
-
-impl PrecinctDecoder {
     /// Consume a packet pointed to by the reader. The previous call must be to
     /// consume_packet_header to prime the handlers.
     pub fn consume_packet<R: RR>(self, reader: &mut R) -> PacketResult<PrecinctDecoder> {
-        let Self { mut ctx, state } = self;
+        let Self { mut ctx, header } = self;
 
-        let Some(ReadyForPacket { packet_info, .. }) = state else {
+        let Some(HeaderInfo { packet_info, .. }) = header else {
             panic!("Invalid consume_packet call");
         };
 
@@ -345,7 +338,7 @@ impl PrecinctDecoder {
                 cb.decode(code_pass_count, &mut coder)?;
             }
         }
-        Ok(PrecinctDecoder { ctx, state: None })
+        Ok(PrecinctDecoder { ctx, header: None })
     }
 }
 
@@ -481,7 +474,7 @@ mod tests {
         });
         let decoder = PrecinctDecoder::new(5, 5, &[10, 10, 10], tcr, false);
         let decoder = decoder.consume_packet_header(&mut reader)?;
-        let state = decoder.state;
+        let state = decoder.header;
 
         assert_eq!(
             0,
