@@ -38,6 +38,12 @@ impl Coeff {
     }
 }
 
+impl Default for Coeff {
+    fn default() -> Self {
+        Coeff::Insignificant(u8::MAX)
+    }
+}
+
 #[derive(Debug)]
 pub enum CodeBlockDecodeError {
     TooManyDecodingPasses,
@@ -61,7 +67,7 @@ pub struct CodeBlockDecoder {
     height: i32,
     subband: SubBandType,
     bit_plane_shift: u8,
-    coefficients: Vec<Coeff>,
+    coefficients: Array2D<Coeff>,
     decode_count: u32,
 }
 
@@ -79,7 +85,7 @@ impl CodeBlockDecoder {
             height,
             subband,
             bit_plane_shift: mb - 1,
-            coefficients: vec![Coeff::Insignificant(u8::MAX); (width * height) as usize],
+            coefficients: Array2D::new(width as usize, height as usize),
             decode_count: 0,
         }
     }
@@ -257,7 +263,7 @@ impl CodeBlockDecoder {
             debug!("Out of bounds coeff_at {}, {}", x, y);
             &Coeff::Insignificant(u8::MAX)
         } else {
-            &self.coefficients[(self.width * idx.y + idx.x) as usize]
+            &self.coefficients[(idx.x as usize, idx.y as usize)]
         }
     }
 
@@ -265,7 +271,7 @@ impl CodeBlockDecoder {
         let CoeffIndex { x, y } = idx;
         let out_bounds = x < 0 || x >= self.width || y < 0 || y >= self.height;
         assert!(!out_bounds, "Should not be trying to mutate out of bounds");
-        &mut self.coefficients[(self.width * idx.y + idx.x) as usize]
+        &mut self.coefficients[(idx.x as usize, idx.y as usize)]
     }
 
     fn significance_context(&self, idx: CoeffIndex) -> usize {
@@ -626,7 +632,7 @@ mod tests {
         );
 
         let coeffs = codeblock.coefficients();
-        let exp_coeffs = vec![-26, -22, -30, -32, -19];
+        let exp_coeffs = Array2D::from_data(vec![-26, -22, -30, -32, -19], 1, 5);
         assert_eq!(coeffs, exp_coeffs, "Coefficients didn't match");
     }
 
@@ -649,7 +655,7 @@ mod tests {
         );
 
         let coeffs = codeblock.coefficients();
-        let exp_coeffs = vec![-26, -22, -30, -32, -19];
+        let exp_coeffs = Array2D::from_data(vec![-26, -22, -30, -32, -19], 1, 5);
         assert_eq!(coeffs, exp_coeffs, "Coefficients didn't match");
     }
 
@@ -698,7 +704,7 @@ mod tests {
         );
 
         let coeffs = codeblock.coefficients();
-        let exp_coeffs = vec![1, 5, 1, 0];
+        let exp_coeffs = Array2D::from_data(vec![1, 5, 1, 0], 1, 4);
         assert_eq!(coeffs, exp_coeffs, "Coefficients didn't match");
     }
 
@@ -718,7 +724,7 @@ mod tests {
         );
 
         let coeffs = codeblock.coefficients();
-        let exp_coeffs = vec![1, 5, 1, 0];
+        let exp_coeffs = Array2D::from_data(vec![1, 5, 1, 0], 1, 4);
         assert_eq!(coeffs, exp_coeffs, "Coefficients didn't match");
     }
 }

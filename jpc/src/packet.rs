@@ -20,7 +20,7 @@ use std::io::{self, Read};
 
 use crate::code_block::CodeBlockDecodeError;
 use crate::coder::standard_decoder;
-use crate::shared::{Bounds, SubBandType, I2};
+use crate::shared::{Array2D, Bounds, SubBandType, I2};
 use crate::tag_tree::{InclusionTagTree, ZeroPlaneTagTree};
 use crate::{bit_reader::BitReader, code_block::CodeBlockDecoder};
 use crate::{SubBandBounds, TileComponentResolutionBounds};
@@ -447,7 +447,8 @@ mod tests {
         let sb = &decoder.ctx.sub_bands[0];
         let cb = &sb.cbs[0];
         let coeffs = cb.coefficients();
-        assert_eq!(coeffs, vec![-26, -22, -30, -32, -19]);
+        let exp = Array2D::from_data(vec![-26, -22, -30, -32, -19], 1, 5);
+        assert_eq!(coeffs, exp);
 
         Ok(())
     }
@@ -473,7 +474,7 @@ mod tests {
         let sb = decoder.ctx.sub_bands.last().expect("Expected to grab LH");
         let cb = &sb.cbs[0];
         let coeffs = cb.coefficients();
-        assert_eq!(coeffs, vec![1, 5, 1, 0]);
+        assert_eq!(coeffs, Array2D::from_data(vec![1, 5, 1, 0], 1, 4));
 
         Ok(())
     }
