@@ -16,43 +16,29 @@
 //!
 
 use core::{error, fmt};
+use log::info;
 use std::io::{self, Read};
 
 use crate::code_block::CodeBlockDecodeError;
 use crate::coder::standard_decoder;
-use crate::shared::{Array2D, Bounds, SubBandType, I2};
+use crate::shared::{Array2D, I2};
 use crate::tag_tree::{InclusionTagTree, ZeroPlaneTagTree};
+use crate::TileComponentResolutionBounds;
 use crate::{bit_reader::BitReader, code_block::CodeBlockDecoder};
-use crate::{SubBandBounds, TileComponentResolutionBounds};
 
 trait PacketDecoder {}
 
-trait PacketDecoderState {}
-/// states for the PacketDecoder
+#[derive(Debug)]
+pub struct NeedsHeader;
+/// Ready consume a packet
 ///
-/// Typestate pattern
-pub mod states {
-    use super::PacketDecoderState;
-    use super::I2;
-    /// Need to consume header before decoding next packet
-    #[derive(Debug)]
-    pub struct NeedsHeader;
-    /// Ready consume a packet
-    ///
-    /// contains information from the relevant header
-    #[derive(Debug, Default)]
-    pub struct ReadyForPacket {
-        // TODO is there anything from the header that is really interesting?
-        pub length: usize, // TODO how big do packets get?
-        pub packet_info: Vec<Vec<(I2, u8, u8)>>,
-    }
-    pub struct Failed;
-    impl PacketDecoderState for NeedsHeader {}
-    impl PacketDecoderState for ReadyForPacket {}
-    impl PacketDecoderState for Failed {}
+/// contains information from the relevant header
+#[derive(Debug, Default)]
+pub struct ReadyForPacket {
+    // TODO is there anything from the header that is really interesting?
+    pub length: usize, // TODO how big do packets get?
+    pub packet_info: Vec<Vec<(I2, u8, u8)>>,
 }
-use log::info;
-use states::{NeedsHeader, ReadyForPacket};
 
 type PacketResult<T> = Result<T, PacketDecodeError>;
 
@@ -136,9 +122,9 @@ impl SubBandContext {
 }
 
 #[derive(Debug)]
-pub struct PrecinctDecoder<S: PacketDecoderState> {
+pub struct PrecinctDecoder {
     ctx: DecoderContext,
-    state: S,
+    state: Option<ReadyForPacket>,
 }
 
 pub trait RR: io::Read {}
@@ -149,14 +135,26 @@ pub struct D {
     pub width: u32,
     pub height: u32,
 }
-impl PrecinctDecoder<NeedsHeader> {
+
+impl PrecinctDecoder {
+    fn grab_coefficients(&self) -> Vec<Array2D<i32>> {
+        // TODO
+        let sbs = &self.ctx.sub_bands;
+        let z = &sbs[0].cbs;
+        let coeff = z[0].coefficients();
+        println!("grab_coefficients: {:?}", coeff);
+
+        vec![]
+    }
+}
+impl PrecinctDecoder {
     pub fn new(
         cbx: u8,
         cby: u8,
         exponents: &[u8],
         bounds: TileComponentResolutionBounds,
         is_res_0: bool,
-    ) -> PrecinctDecoder<NeedsHeader> {
+    ) -> PrecinctDecoder {
         let pcbx = 2u32.pow(cbx as u32);
         let pcby = 2u32.pow(cby as u32);
         let sbs = if is_res_0 {
@@ -217,25 +215,20 @@ impl PrecinctDecoder<NeedsHeader> {
                 layer: 0,
                 sub_bands,
             },
-            state: NeedsHeader,
+            state: None,
         }
     }
 
-    pub fn grab_subbands(&self) -> u32 {
+    pub fn grab_subbands(&self) -> Vec<Array2D<i32>> {
         // TODO combine code blocks
-        let zz = self
-            .ctx
+        self.ctx
             .sub_bands
             .iter()
-            .map(|sbc| &sbc.cbs)
-            .collect::<Vec<_>>();
-        32u32
+            .map(|sbc| sbc.cbs[0].coefficients())
+            .collect()
     }
     /// Consume a packet header pointed to by the reader
-    pub fn consume_packet_header<R: RR>(
-        self,
-        reader: &mut R,
-    ) -> PacketResult<PrecinctDecoder<ReadyForPacket>> {
+    pub fn consume_packet_header<R: RR>(self, reader: &mut R) -> PacketResult<PrecinctDecoder> {
         let Self { mut ctx, .. } = self;
 
         // Packets are byte aligned, so we can parse at the byte boundary
@@ -250,10 +243,10 @@ impl PrecinctDecoder<NeedsHeader> {
             //        );
             return Ok(PrecinctDecoder {
                 ctx,
-                state: ReadyForPacket {
+                state: Some(ReadyForPacket {
                     length: 0,
                     ..Default::default()
-                },
+                }),
             });
         }
 
@@ -320,24 +313,23 @@ impl PrecinctDecoder<NeedsHeader> {
         }
         Ok(PrecinctDecoder {
             ctx,
-            state: ReadyForPacket {
+            state: Some(ReadyForPacket {
                 length: total_to_read,
                 packet_info,
-            },
+            }),
         })
     }
 }
 
-impl PrecinctDecoder<ReadyForPacket> {
+impl PrecinctDecoder {
     /// Consume a packet pointed to by the reader. The previous call must be to
     /// consume_packet_header to prime the handlers.
-    pub fn consume_packet<R: RR>(
-        self,
-        reader: &mut R,
-    ) -> PacketResult<PrecinctDecoder<NeedsHeader>> {
+    pub fn consume_packet<R: RR>(self, reader: &mut R) -> PacketResult<PrecinctDecoder> {
         let Self { mut ctx, state } = self;
 
-        let ReadyForPacket { packet_info, .. } = state;
+        let Some(ReadyForPacket { packet_info, .. }) = state else {
+            panic!("Invalid consume_packet call");
+        };
 
         for (sb, header_info) in ctx.sub_bands.iter_mut().zip(packet_info) {
             println!("Begin subband work on ? {:?}", sb);
@@ -353,10 +345,7 @@ impl PrecinctDecoder<ReadyForPacket> {
                 cb.decode(code_pass_count, &mut coder)?;
             }
         }
-        Ok(PrecinctDecoder {
-            ctx,
-            state: NeedsHeader,
-        })
+        Ok(PrecinctDecoder { ctx, state: None })
     }
 }
 
@@ -494,7 +483,11 @@ mod tests {
         let decoder = decoder.consume_packet_header(&mut reader)?;
         let state = decoder.state;
 
-        assert_eq!(0, state.length, "zero length packet header");
+        assert_eq!(
+            0,
+            state.expect("expected header").length,
+            "zero length packet header"
+        );
         assert_eq!(reader.position(), 1, "expected to consume 1 bytes");
         Ok(())
     }

@@ -12,7 +12,6 @@ use std::io::SeekFrom;
 use std::ops::{Div, Range};
 use std::str;
 
-use crate::packet::states::NeedsHeader;
 use crate::packet::{PacketDecodeError, PrecinctDecoder};
 use crate::shared::Bounds;
 use crate::shared::SubBandType;
@@ -2816,7 +2815,7 @@ struct Image {}
 struct Tile {
     bounds: TileBounds,
     consume_count: u16,
-    precincts: HashMap<PrecinctKey, PrecinctDecoder<NeedsHeader>>,
+    precincts: HashMap<PrecinctKey, PrecinctDecoder>,
     progression: ProgressionState,
 }
 
