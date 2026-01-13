@@ -14,7 +14,7 @@ use std::fmt::Display;
 use log::{debug, info};
 
 use crate::coder::{Decoder, RUN_LEN, UNIFORM};
-use crate::shared::SubBandType;
+use crate::shared::{Array2D, SubBandType};
 
 #[derive(Debug, Clone)]
 enum Coeff {
@@ -125,20 +125,21 @@ impl CodeBlockDecoder {
     /// TODO return type is whak
     /// Note, return a copy, maybe need to decode more for this codeblock later and don't want to
     /// lose state
-    pub fn coefficients(&self) -> Vec<i32> {
-        self.coefficients
-            .iter()
-            .map(|c| match c {
-                Coeff::Significant { value, is_negative } => {
-                    if *is_negative {
-                        -1 * value
-                    } else {
-                        *value
-                    }
+    pub fn coefficients(&self) -> Array2D<i32> {
+        self.coefficients.map_elements(|c| match c {
+            Coeff::Significant { value, is_negative } => {
+                if *is_negative {
+                    -1 * value
+                } else {
+                    *value
                 }
-                Coeff::Insignificant(_) => 0,
-            } as i32)
-            .collect()
+            }
+            Coeff::Insignificant(_) => 0,
+        } as i32)
+    }
+
+    pub fn sub_band(&self) -> SubBandType {
+        self.subband
     }
 
     /// Handle a cleanup pass
