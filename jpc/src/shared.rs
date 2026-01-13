@@ -99,3 +99,10 @@ impl<T> Array2D<T> {
         Array2D::from_data(out_data, self.width, self.height)
     }
 }
+
+#[derive(Debug)]
+pub enum SubBandGroup<T> {
+    Full { ll: T, hl: T, lh: T, hh: T },
+    LL(T),
+    Partial { hl: T, lh: T, hh: T },
+}
