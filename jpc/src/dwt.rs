@@ -11,6 +11,8 @@
 
 use std::ops::{Index, IndexMut};
 
+use crate::shared::{Array2D, SubBandGroup};
+
 /// Lifting parameters for the 9-7 irreversible filter (Table F.4)
 pub mod lifting_params_97 {
     /// α (alpha) lifting parameter
@@ -47,135 +49,6 @@ pub enum SubBandType {
     HH,
 }
 
-/// A 2D coefficient array for wavelet operations
-#[derive(Debug, Clone)]
-pub struct Array2D<T> {
-    data: Vec<T>,
-    width: usize,
-    height: usize,
-    /// Offset of the first column index (u0)
-    pub u0: i32,
-    /// Offset of the first row index (v0)
-    pub v0: i32,
-}
-
-impl<T: Clone + Default> Array2D<T> {
-    /// Create a new 2D array with given dimensions
-    pub fn new(width: usize, height: usize) -> Self {
-        Self {
-            data: vec![T::default(); width * height],
-            width,
-            height,
-            u0: 0,
-            v0: 0,
-        }
-    }
-
-    /// Create a new 2D array with given dimensions and offset
-    pub fn with_offset(width: usize, height: usize, u0: i32, v0: i32) -> Self {
-        Self {
-            data: vec![T::default(); width * height],
-            width,
-            height,
-            u0,
-            v0,
-        }
-    }
-
-    /// Create from existing data
-    pub fn from_data(data: Vec<T>, width: usize, height: usize) -> Self {
-        assert_eq!(data.len(), width * height);
-        Self {
-            data,
-            width,
-            height,
-            u0: 0,
-            v0: 0,
-        }
-    }
-
-    pub fn width(&self) -> usize {
-        self.width
-    }
-
-    pub fn height(&self) -> usize {
-        self.height
-    }
-
-    /// Get value at position (u, v) using absolute coordinates
-    pub fn get(&self, u: i32, v: i32) -> &T {
-        let col = (u - self.u0) as usize;
-        let row = (v - self.v0) as usize;
-        &self.data[row * self.width + col]
-    }
-
-    /// Get mutable value at position (u, v) using absolute coordinates
-    pub fn get_mut(&mut self, u: i32, v: i32) -> &mut T {
-        let col = (u - self.u0) as usize;
-        let row = (v - self.v0) as usize;
-        &mut self.data[row * self.width + col]
-    }
-
-    /// Set value at position (u, v) using absolute coordinates
-    pub fn set(&mut self, u: i32, v: i32, value: T) {
-        let col = (u - self.u0) as usize;
-        let row = (v - self.v0) as usize;
-        self.data[row * self.width + col] = value;
-    }
-
-    /// Get a column as a vector
-    pub fn get_column(&self, u: i32) -> Vec<T> {
-        let col = (u - self.u0) as usize;
-        (0..self.height)
-            .map(|row| self.data[row * self.width + col].clone())
-            .collect()
-    }
-
-    /// Set a column from a vector
-    pub fn set_column(&mut self, u: i32, values: &[T]) {
-        let col = (u - self.u0) as usize;
-        for (row, value) in values.iter().enumerate() {
-            self.data[row * self.width + col] = value.clone();
-        }
-    }
-
-    /// Get a row as a vector
-    pub fn get_row(&self, v: i32) -> Vec<T> {
-        let row = (v - self.v0) as usize;
-        self.data[row * self.width..(row + 1) * self.width].to_vec()
-    }
-
-    /// Set a row from a vector
-    pub fn set_row(&mut self, v: i32, values: &[T]) {
-        let row = (v - self.v0) as usize;
-        self.data[row * self.width..(row + 1) * self.width].clone_from_slice(values);
-    }
-
-    /// Get the upper bound for u coordinate (exclusive)
-    pub fn u1(&self) -> i32 {
-        self.u0 + self.width as i32
-    }
-
-    /// Get the upper bound for v coordinate (exclusive)
-    pub fn v1(&self) -> i32 {
-        self.v0 + self.height as i32
-    }
-}
-
-impl<T> Index<(usize, usize)> for Array2D<T> {
-    type Output = T;
-
-    fn index(&self, (col, row): (usize, usize)) -> &Self::Output {
-        &self.data[row * self.width + col]
-    }
-}
-
-impl<T> IndexMut<(usize, usize)> for Array2D<T> {
-    fn index_mut(&mut self, (col, row): (usize, usize)) -> &mut Self::Output {
-        &mut self.data[row * self.width + col]
-    }
-}
-
 /// Represents a set of sub-bands at a given decomposition level
 #[derive(Debug, Clone)]
 pub struct SubBands {
@@ -200,10 +73,19 @@ impl SubBands {
     }
 }
 
-/// The main DWT processor implementing Annex F procedures
+pub trait DwtProcessorTrait {
+    // TODO
+    fn idwt<T>(&self, all_subbands: &SubBandGroup<T>, n_levels: usize) -> Array2D<f64>;
+    fn fdwt<T>(&self, input: &Array2D<f64>, n_levels: usize) -> SubBandGroup<T>;
+}
+
+// The main DWT processor implementing Annex F procedures
 pub struct DwtProcessor {
     filter_type: FilterType,
 }
+
+struct Dwt53Processor {}
+struct Dwt97Processor {}
 
 impl DwtProcessor {
     /// Create a new DWT processor with specified filter type
@@ -645,6 +527,40 @@ impl DwtProcessor {
 
     /// IDWT procedure - Inverse Discrete Wavelet Transformation
     /// Transforms sub-bands back to tile-component samples
+    pub fn idwt_sbg(&self, all_subbands: &[SubBandGroup<Array2D<i32>>]) -> Array2D<f64> {
+        assert!(!all_subbands.is_empty());
+
+        // Start with the deepest LL sub-band
+        let SubBandGroup::LL(cur_ll) = &all_subbands[0] else {
+            panic!("unable to handle");
+        };
+        let to_f64 = |e: &i32| f64::from(*e);
+        let mut current = cur_ll.map_elements(to_f64);
+
+        // Iterate from deepest level to level 1
+        for bands in &all_subbands[1..] {
+            //for lev in (0..n_levels).rev() {
+            //let bands = &all_subbands[lev];
+            let SubBandGroup::Partial { hl, lh, hh } = bands else {
+                panic!("expected partial sub band");
+            };
+
+            // Create sub-bands with current LL and this level's HL, LH, HH
+            let level_bands = SubBands {
+                ll: current,
+                hl: hl.map_elements(to_f64),
+                lh: lh.map_elements(to_f64),
+                hh: hh.map_elements(to_f64),
+            };
+
+            current = self.subband_reconstruct_2d(&level_bands);
+        }
+
+        current
+    }
+
+    /// IDWT procedure - Inverse Discrete Wavelet Transformation
+    /// Transforms sub-bands back to tile-component samples
     pub fn idwt(&self, all_subbands: &[SubBands], n_levels: usize) -> Array2D<f64> {
         assert!(!all_subbands.is_empty());
         assert_eq!(all_subbands.len(), n_levels);
@@ -729,6 +645,7 @@ mod tests {
     use log::info;
 
     use super::*;
+    use crate::shared::Array2D;
 
     const EPSILON: f64 = 1e-10;
     const EPSILON_97: f64 = 1e-6;
@@ -1171,7 +1088,8 @@ mod tests {
         ];
 
         fn conv_i32(data: &Array2D<f64>) -> Vec<i32> {
-            data.data.iter().map(|&f| f as i32).collect()
+            data.elements().iter().map(|&f| f as i32).collect()
+            //data.data.iter().map(|&f| f as i32).collect()
         }
 
         // Grab data from data above

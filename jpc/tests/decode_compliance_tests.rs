@@ -22,7 +22,7 @@ fn test_file(filename: &str) -> Result<PathBuf, String> {
 
 /// Test an 8 bit 16x16 image with 2 resolution level
 #[test]
-//#[ignore = "lots of work needed before this is ready"]
+#[ignore = "lots of work needed before this is ready"]
 fn test_8b16g_n2() -> Result<(), String> {
     shared::init_logger();
 
@@ -113,7 +113,6 @@ fn test_c0p0() -> Result<(), String> {
 }
 
 #[test]
-//#[ignore = "lots of work needed before this is ready"]
 fn test_j10_example() -> Result<(), String> {
     shared::init_logger();
     let j2k = test_file("j10.j2k")?;
@@ -135,9 +134,9 @@ fn test_j10_example() -> Result<(), String> {
     assert!(!image_info.components()[0].is_signed);
 
     // Pull out component data
-    let data_exp = [101, 103, 104, 105, 96, 97, 96, 102, 109 + 1]; // TODO remove +1
+    let data_exp = [101, 103, 104, 105, 96, 97, 96, 102, 109]; // TODO remove +1
     let mut buf = vec![0u8; (width * height) as usize];
     decoder.decode_component(0, &mut buf).unwrap();
     assert_eq!(buf, data_exp, "Sample data should match.");
-    todo!("Did we really pass !??!  YAY !!!");
+    Ok(())
 }

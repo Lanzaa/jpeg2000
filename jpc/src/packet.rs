@@ -233,6 +233,20 @@ impl PrecinctDecoder {
             }
             for code_block in &sb.cbs {
                 let sbt = code_block.sub_band();
+                //let to_fill = &mut match sbt {
+                //    SubBandType::LL => ll,
+                //    SubBandType::HL => hl,
+                //    SubBandType::LH => lh,
+                //    SubBandType::HH => hh,
+                //};
+                //let coeffs = code_block.coefficients();
+                //*to_fill = Some(coeffs);
+                //match sbt {
+                //    SubBandType::LL => ll = code_block.coefficients(),
+                //    SubBandType::HL => hl = code_block.coefficients(),
+                //    SubBandType::LH => lh = code_block.coefficients(),
+                //    SubBandType::HH => hh = code_block.coefficients(),
+                //}
                 (match sbt {
                     SubBandType::LL => &mut ll,
                     SubBandType::HL => &mut hl,

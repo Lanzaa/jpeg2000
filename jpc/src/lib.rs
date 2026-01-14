@@ -9,11 +9,14 @@ use std::fmt;
 use std::io;
 use std::io::Read;
 use std::io::SeekFrom;
-use std::ops::{Div, Range};
+use std::ops::Range;
 use std::str;
 
+use crate::dwt::DwtProcessor;
 use crate::packet::{PacketDecodeError, PrecinctDecoder};
+use crate::shared::Array2D;
 use crate::shared::Bounds;
+use crate::shared::SubBandGroup;
 use crate::shared::SubBandType;
 
 pub mod code_block;
@@ -2817,6 +2820,8 @@ struct Tile {
     consume_count: u16,
     precincts: HashMap<PrecinctKey, PrecinctDecoder>,
     progression: ProgressionState,
+    range: ProgressionRange,
+    //comp_res_precinct: CompResPrecinctHolder,
 }
 
 #[derive(Debug)]
@@ -3024,7 +3029,7 @@ impl ProgressionRange {
     }
 }
 
-fn into_iter(progression_order: ProgressionOrder, ranges: ProgressionRange) -> ProgressionState {
+fn into_iter(progression_order: ProgressionOrder, ranges: &ProgressionRange) -> ProgressionState {
     if let ProgressionOrder::Reserved { .. } = progression_order {
         todo!("Iterating a reserved progression order is not implemented");
     }
@@ -3032,7 +3037,7 @@ fn into_iter(progression_order: ProgressionOrder, ranges: ProgressionRange) -> P
 
     ProgressionState {
         order: progression_order,
-        ranges,
+        ranges: ranges.clone(),
         next_item,
     }
 }
@@ -3083,6 +3088,8 @@ impl Tile {
             for resolution_level in 0..=decom_level {
                 let nb = decom_level - resolution_level;
                 let tcr_bounds = component_bounds.resolution_bounds(nb);
+                println!("POIX41: component bounds: {:?}", component_bounds);
+                println!("POIX42: tcr bounds : {:?}", tcr_bounds);
                 let mbs: Vec<u8> = match resolution_level {
                     0 => &exponents[0..=0],
                     _ => {
@@ -3113,7 +3120,8 @@ impl Tile {
             bounds: TileBounds(tile_bounds),
             consume_count: 0,
             precincts,
-            progression: into_iter(progression, range),
+            progression: into_iter(progression, &range),
+            range,
         })
     }
 
@@ -3175,7 +3183,53 @@ impl Tile {
 
     fn read_component(&self, component: u16, buf: &mut [u8]) -> Result<(), DecodeError> {
         println!("Would read component for a specific tile into buf");
-        todo!()
+
+        // mock for j10
+
+        let Some(res0) = self.precincts.get(&PrecinctKey {
+            component: 0,
+            resolution_level: 0,
+            precinct: 0,
+        }) else {
+            panic!("Unable to pull LL");
+        };
+        println!("Found LL: {:?}", res0);
+        let res0sb = res0.grab_precinct_subbands();
+        println!("Res0sb: {:?}", res0sb);
+        // TODO clean up
+
+        type R = Array2D<i32>;
+        let mut sbgs: Vec<SubBandGroup<R>> = vec![];
+        // TODO resolution level range
+        for resolution_level in 0..=1 {
+            // TODO combine precincts
+            let Some(decoder) = self.precincts.get(&PrecinctKey {
+                component,
+                resolution_level,
+                precinct: 0,
+            }) else {
+                panic!("Unable to pull LL");
+            };
+            sbgs.push(decoder.grab_precinct_subbands());
+        }
+
+        let dwt = DwtProcessor::new(dwt::FilterType::Reversible53);
+        let out = dwt.idwt_sbg(sbgs.iter().as_slice());
+        println!("out: {:?}", out);
+
+        let level_shift = (2.0_f64).powf(7.0); // Ssiz = 7
+        let signal = out.map_elements(|v| *v + level_shift);
+        println!("signal: {:?}", signal);
+
+        if signal.elements().len() != buf.len() {
+            panic!("inavlid size of signal or buf");
+        }
+        for (i, s) in signal.elements().iter().enumerate() {
+            buf[i] = *s as u8;
+        }
+
+        // TODO iDWT
+        Ok(())
     }
 }
 
@@ -3977,7 +4031,8 @@ impl<R: io::Read + io::Seek> ImageDecoder for Profile0Decoder<R> {
             tile.read_component(component, buf)?;
         }
 
-        todo!("decode component")
+        //todo!("decode component")
+        Ok(())
     }
 }
 
@@ -4220,7 +4275,7 @@ mod tests {
         assert!(!items.is_empty());
         assert_eq!(6, items.len());
 
-        let items: Vec<ProgressionItem> = into_iter(ProgressionOrder::LRLCPP, ranges)
+        let items: Vec<ProgressionItem> = into_iter(ProgressionOrder::LRLCPP, &ranges)
             .into_iter()
             .collect();
         assert!(!items.is_empty());

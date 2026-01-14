@@ -33,8 +33,8 @@ pub struct Bounds {
 #[derive(Debug, Clone)]
 pub struct Array2D<T> {
     data: Vec<T>,
-    width: usize,
-    height: usize,
+    pub width: usize,
+    pub height: usize,
     /// Offset of the first column index (u0)
     pub u0: i32,
     /// Offset of the first row index (v0)
@@ -100,9 +100,96 @@ impl<T> Array2D<T> {
     }
 }
 
+/// todo are these needed ?
+impl<T: Clone + Default> Array2D<T> {
+    /// Create a new 2D array with given dimensions and offset
+    pub fn with_offset(width: usize, height: usize, u0: i32, v0: i32) -> Self {
+        Self {
+            data: vec![T::default(); width * height],
+            width,
+            height,
+            u0,
+            v0,
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    /// Get value at position (u, v) using absolute coordinates
+    pub fn get(&self, u: i32, v: i32) -> &T {
+        let col = (u - self.u0) as usize;
+        let row = (v - self.v0) as usize;
+        &self.data[row * self.width + col]
+    }
+
+    /// Get mutable value at position (u, v) using absolute coordinates
+    pub fn get_mut(&mut self, u: i32, v: i32) -> &mut T {
+        let col = (u - self.u0) as usize;
+        let row = (v - self.v0) as usize;
+        &mut self.data[row * self.width + col]
+    }
+
+    /// Set value at position (u, v) using absolute coordinates
+    pub fn set(&mut self, u: i32, v: i32, value: T) {
+        let col = (u - self.u0) as usize;
+        let row = (v - self.v0) as usize;
+        self.data[row * self.width + col] = value;
+    }
+
+    /// Get a column as a vector
+    pub fn get_column(&self, u: i32) -> Vec<T> {
+        let col = (u - self.u0) as usize;
+        (0..self.height)
+            .map(|row| self.data[row * self.width + col].clone())
+            .collect()
+    }
+
+    /// Set a column from a vector
+    pub fn set_column(&mut self, u: i32, values: &[T]) {
+        let col = (u - self.u0) as usize;
+        for (row, value) in values.iter().enumerate() {
+            self.data[row * self.width + col] = value.clone();
+        }
+    }
+
+    /// Get a row as a vector
+    pub fn get_row(&self, v: i32) -> Vec<T> {
+        let row = (v - self.v0) as usize;
+        self.data[row * self.width..(row + 1) * self.width].to_vec()
+    }
+
+    /// Set a row from a vector
+    pub fn set_row(&mut self, v: i32, values: &[T]) {
+        let row = (v - self.v0) as usize;
+        self.data[row * self.width..(row + 1) * self.width].clone_from_slice(values);
+    }
+
+    /// Get the upper bound for u coordinate (exclusive)
+    pub fn u1(&self) -> i32 {
+        self.u0 + self.width as i32
+    }
+
+    /// Get the upper bound for v coordinate (exclusive)
+    pub fn v1(&self) -> i32 {
+        self.v0 + self.height as i32
+    }
+
+    pub fn elements(&self) -> &Vec<T> {
+        &self.data
+    }
+}
+
 #[derive(Debug)]
 pub enum SubBandGroup<T> {
     Full { ll: T, hl: T, lh: T, hh: T },
     LL(T),
     Partial { hl: T, lh: T, hh: T },
 }
+
+type ResolutionLevelSubBands = SubBandGroup<Array2D<i32>>;
